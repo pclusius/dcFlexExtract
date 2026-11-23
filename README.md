@@ -15,7 +15,7 @@ Only ERA5 is supported. You choose the dates, the area, the grid and the model l
   <a href="docs/mars_server_persp.mp4">watch docs/mars_server_persp.mp4</a>.
 </video>
 
-*The MARS server's perspective on the requests (video, [direct link](docs/mars_server_persp.mp4)).*
+*The MARS server procedure (video, [direct link](docs/mars_server_persp.mp4)).*
 
 ## Options
 
