@@ -329,16 +329,23 @@ class Downloader:
                 return False
         return False
 
-    def run(self):
+    def run(self, idle=None):
         """Loop until everything is done or failed. Safe to interrupt (Ctrl-C) and restart.
-        Sleeps `poll_seconds` between passes only when nothing changed; queued jobs are polled at most that often."""
+        Sleeps `poll_seconds` between passes only when nothing changed; queued jobs are polled at most that often.
+        `idle`: a callable that does one piece of other work (the ARCO hours) and returns True if it did some; it
+        is called instead of sleeping, so that the CDS queue and that work proceed side by side."""
         try:
             last = None
-            while not self.settle():
+            while True:
+                done = self.settle()
+                worked = bool(idle and idle())
+                if done and not worked:
+                    break
                 if self.summary() != last:               # progress line only when something changed
                     last = self.summary()
                     self.log(f"... {last}")
-                time.sleep(self.poll_seconds)
+                if not worked:
+                    time.sleep(self.poll_seconds)
         except KeyboardInterrupt:
             self.log("interrupted; state is saved, rerun to continue")
             return False

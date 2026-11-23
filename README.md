@@ -27,6 +27,7 @@ Only ERA5 is supported. You choose the dates, the area, the grid and the model l
 | `--area N W S E` | latitude/longitude rectangle, degrees |
 | `--grid` | `0.25` (default) or `0.5` |
 | `--levels FIRST LAST` | model levels, default `60 137` (137 is the lowest level, at the surface). All levels of a run go into one request |
+| `--source` | where the model levels come from: `mars` (default, CDS/MARS) or `mixed` (ARCO-ERA5, no queue); see *Model levels from ARCO-ERA5* below |
 | `--pressure` | surface pressure source: `lnsp` (default), `sp`, `spectral`; see *Surface pressure* below |
 | `--outdir DIR` | where everything of the run goes (default `out`): hourly files, raw data in `DIR/raw`, logs in `DIR/logs` |
 | `--rawdir DIR` | raw GRIB files (default `<outdir>/raw`); `process` searches it recursively |
@@ -207,6 +208,41 @@ you change source, and the same `--pressure` for `download` and `process`.
 With `lnsp` the model-level request also carries level 1, because LNSP lives there; the other variables come back
 on level 1 too (about 1/79 more data, ignored by `process`). CDS answers HTTP 500 to a level list that mixes a lone
 level with a range (`1/60/to/137`), so the levels are written out (`1/60/61/.../137`).
+
+### Model levels from ARCO-ERA5 (`--source mixed`)
+
+`--source mars` (default) fetches everything from CDS. The model levels are the slow part (the MARS queue waits hours to
+days), so `--source mixed` takes them from **ARCO-ERA5**, Google's public copy of ERA5 (`gs://gcp-public-data-arco-era5`,
+read over plain HTTPS: no account, no queue). Surface, flux and static fields still come from CDS (the single-levels
+queue, which is quick), so a run needs a CDS account either way. The model-level part of `download` becomes local
+work: for each hour it reads the global spectral T639 fields and evaluates them on your box.
+
+| field | from ARCO | note |
+|---|---|---|
+| T, U, V | spectral `t`, vorticity, divergence | U, V through stream function and velocity potential; exact derivatives |
+| LNSP, SP | spectral `lnsp` | exp(LNSP) on the box (as `--pressure lnsp`); `--pressure` must stay `lnsp` |
+| Q, CLWC, CIWC | N320 reduced Gaussian grid | bilinear interpolation to your grid |
+| ETADOT | not in ARCO: mass continuity | from the divergence of **all 137 levels** and the surface-pressure gradient, no time derivative |
+
+The result is written as one GRIB file per hour, `<rawdir>/<domain>/<day>/ARCO_ML_L060-137_hHH.grb`, in the same form
+as the MARS data, so `process` is unchanged. `download` is resumable per hour. Data volume read per hour is about
+0.8 GB (every chunk is one level of one variable, 1.2-1.6 MB, global), CPU is a minute or so per hour on a large domain.
+
+What to know before using it:
+
+* **The numbers differ somewhat from the MARS route.** MARS's own conversion to a lat-lon grid is not an exact
+  evaluation of the spectral data (the same effect as `--pressure lnsp` against `spectral`: 20 Pa rms in SP), so T, U, V
+  differ by up to about 1% near the ground and Q, CLWC, CIWC by the interpolation. The ARCO values are the exact
+  spectral ones. On the 2023-08-30 14 UTC test box ETADOT differs from MARS's by 3-10% (rms) in the middle levels; the
+  cause (MARS grid conversion or the IFS's own ETADOT) is not settled. FLEXPART has not been run on either route.
+* **Dates.** ARCO ends a few weeks before today (all three of its wind, moisture and surface-pressure stores are needed;
+  the earliest end counts) and the final-ERA5 stores end months earlier; days after that are preliminary ERA5T. If a day
+  of the run is missing, `download` stops before sending anything and tells you from which date to use `--source mars`.
+  A run cannot mix the two sources.
+* **ETADOT and levels.** As with MARS data, the ground boundary needs levels that end at 137.
+* Needs `numcodecs` (part of any zarr installation; `setup` installs it if the modules lack it). Data: Copernicus
+  Climate Change Service (ERA5), via Google's ARCO-ERA5; see `NOTICE.md` for the licence and the citation.
+* Use a new `--outdir` when you change `--source`.
 
 ### Vertical velocity (ETADOT) and the integration boundary
 

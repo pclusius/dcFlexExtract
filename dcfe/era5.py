@@ -34,6 +34,11 @@ SP_VAR = "surface_pressure"   # single-levels variable, the alternative pressure
 PRESSURE_SOURCES = ("lnsp", "sp", "spectral")
 DEFAULT_PRESSURE = "lnsp"
 
+# where the model-level data comes from: mars = CDS/MARS (everything from CDS); mixed = ARCO-ERA5 (Google) for the
+# model levels and their derivations (see arco.py), CDS for surface, flux and static fields
+SOURCES = ("mars", "mixed")
+DEFAULT_SOURCE = "mars"
+
 # single-level analysis fields: name -> CDS variable name
 SFC_AN_VARS = {
     "SD": "snow_depth", "MSL": "mean_sea_level_pressure", "TCC": "total_cloud_cover",

@@ -32,3 +32,6 @@ livetest/raw_*/
 livetest/t_*/
 livetest/raw_merged/
 livetest/out_*/
+
+# finite-difference ETADOT test: MARS job id and data of a personal account
+livetest/fdtest/

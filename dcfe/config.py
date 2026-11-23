@@ -37,6 +37,7 @@ class Config:
     rawdir: Path = Path("raw")
     outdir: Path = Path("out")
     pressure: str = era5.DEFAULT_PRESSURE      # lnsp | sp | spectral
+    source: str = era5.DEFAULT_SOURCE          # mars | mixed
 
     def __post_init__(self):
         if self.end < self.start:
@@ -49,6 +50,11 @@ class Config:
             raise ValueError("west and east are equal")
         if self.pressure not in era5.PRESSURE_SOURCES:
             raise ValueError(f"pressure must be one of {era5.PRESSURE_SOURCES}")
+        if self.source not in era5.SOURCES:
+            raise ValueError(f"source must be one of {era5.SOURCES}")
+        if self.source == "mixed" and self.pressure != "lnsp":
+            raise ValueError("--source mixed takes the surface pressure from the spectral LNSP of ARCO-ERA5: "
+                             "use --pressure lnsp (the default)")
         if self.grid not in era5.VALID_GRIDS:
             raise ValueError(f"grid must be one of {era5.VALID_GRIDS}")
         if not (1 <= self.level_first <= self.level_last <= era5.MAX_LEVEL):
@@ -56,11 +62,12 @@ class Config:
 
     @classmethod
     def make(cls, start, end, area, grid=0.25, levels=era5.DEFAULT_LEVELS,
-             rawdir="raw", outdir="out", pressure=era5.DEFAULT_PRESSURE) -> "Config":
+             rawdir="raw", outdir="out", pressure=era5.DEFAULT_PRESSURE,
+             source=era5.DEFAULT_SOURCE) -> "Config":
         """area = (north, west, south, east); levels = (first, last)."""
         n, w, s, e = (float(x) for x in area)
         return cls(parse_date(start), parse_date(end), n, w, s, e, float(grid),
-                   int(levels[0]), int(levels[1]), Path(rawdir), Path(outdir), pressure)
+                   int(levels[0]), int(levels[1]), Path(rawdir), Path(outdir), pressure, source)
 
     @property
     def domain_tag(self) -> str:

@@ -71,7 +71,19 @@ ENFO, ELDA, GFS and ecgate/cca code of flex_extract.
   with EMOS (`tests/test_fft99_lite.sh`), not by copying code. `make USE_EMOS=1` can still link EMOS.
 * `fortran/phgrreal.f90` implements the spectral filter of Sardeshmukh and Hoskins (Mon. Wea. Rev., 1984), as
   its comments say.
-* Used as libraries: ecCodes (Apache-2.0), ecmwf-datastores-client (Apache-2.0), NumPy (BSD-3-Clause).
+* Used as libraries: ecCodes (Apache-2.0), ecmwf-datastores-client (Apache-2.0), NumPy (BSD-3-Clause),
+  numcodecs (MIT; only for `--source mixed`).
+* `--source mixed` reads **ARCO-ERA5**, Google's public copy of ERA5 (`gs://gcp-public-data-arco-era5`; Google's
+  recipes are Apache-2.0, "not an official Google product"). The data are ERA5 from the Copernicus Climate Change
+  Service, redistributed with C3S's permission. No ARCO or Google code is used here; `dcfe/spectral.py` and
+  `dcfe/arco.py` are written for dcFlexExtract (the spherical-harmonic conventions were checked against ECMWF's own
+  gridded values and against analytic cases, `tests/test_spectral.py`). Please cite, in addition to the ERA5 reference
+  above: Carver, R. W. and Merose, A. (2023): ARCO-ERA5: An Analysis-Ready Cloud-Optimized Reanalysis Dataset.
+  22nd Conf. on AI for Env. Science, Denver, CO, Amer. Meteo. Soc, 4A.1,
+  https://ams.confex.com/ams/103ANNUAL/meetingapp.cgi/Paper/415842 and Hersbach et al. (2017), Complete ERA5, C3S
+  Climate Data Store (accessed DD-MM-YYYY). "The results contain modified Copernicus Climate Change Service
+  information. Neither the European Commission nor ECMWF is responsible for any use that may be made of the
+  Copernicus information or data it contains."
 
 ## Licence of dcFlexExtract
 

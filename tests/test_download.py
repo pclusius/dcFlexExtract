@@ -448,3 +448,28 @@ def test_queued_jobs_are_polled_no_more_often_than_poll_seconds(tmp_path):
     t[0] += 61
     dl.settle()
     assert total() >= 2 * n_jobs - 1 or total() > n_jobs             # a minute later they are asked again
+
+
+def test_run_does_other_work_instead_of_sleeping_while_cds_is_queued(tmp_path):
+    """`idle` (the ARCO hours of --source mixed) runs while CDS jobs are queued, the loop only ends when both are done"""
+    cfg, fc = mkcfg(tmp_path, source="mixed"), FakeClient(polls_until_done=3)
+    todo = [1, 2, 3, 4, 5]
+    log = []
+
+    def idle():
+        if not todo:
+            return False
+        log.append((todo.pop(0), dict(Downloader.summary(dl))))
+        return True
+    sleeps = []
+    dl = Downloader(cfg, fc, poll_seconds=60, **quiet())
+    import dcfe.download as D
+    orig, D.time.sleep = D.time.sleep, sleeps.append
+    try:
+        assert dl.run(idle=idle) is True
+    finally:
+        D.time.sleep = orig
+    assert not todo and len(log) == 5                       # all the other work was done
+    assert dl.summary() == {DONE: len(plan(cfg))}           # and all CDS units
+    assert not any(r.group == "ML" for r in plan(cfg))      # a mixed run asks MARS for nothing
+    assert sleeps == [] or len(sleeps) < 3                  # busy with other work, not sleeping

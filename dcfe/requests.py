@@ -307,11 +307,13 @@ def plan(cfg: Config, spans: Optional[dict] = None) -> list[Request]:
         for ch in _chunks(days, spans[group], same_month=_GROUP_DATASET[group] == era5.DATASET_SFC):
             units.append(Request(group, ch[0], _GROUP_VARS[group] + extra, era5.HOURS, levels, ndays=len(ch), **common))
     add(SL, main_days, None)
-    if cfg.pressure == "spectral":
+    if cfg.source == "mixed":                    # model levels (and LNSP) come from ARCO-ERA5, see arco.py
+        pass
+    elif cfg.pressure == "spectral":
         add(LNSP, main_days, (1, 1))
     elif cfg.pressure == "sp":
         add(SP, main_days, None)
-    for i, blk in enumerate(level_blocks(cfg.level_first, cfg.level_last)):
+    for i, blk in enumerate(level_blocks(cfg.level_first, cfg.level_last) if cfg.source == "mars" else []):
         # --pressure lnsp: the gridded LNSP is requested together with the first level block (one request less)
         add(ML, main_days, blk, extra=("LNSP",) if cfg.pressure == "lnsp" and i == 0 else ())
     add(FLUX, flux_days, None)
