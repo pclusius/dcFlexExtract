@@ -37,7 +37,7 @@ class Config:
     rawdir: Path = Path("raw")
     outdir: Path = Path("out")
     pressure: str = era5.DEFAULT_PRESSURE      # lnsp | sp | spectral
-    source: str = era5.DEFAULT_SOURCE          # mars | mixed
+    source: str = era5.DEFAULT_SOURCE          # mars | mixed | arco
     gridding: str = era5.DEFAULT_GRIDDING      # exact | mars (spectral data from ARCO only)
 
     def __post_init__(self):

@@ -29,8 +29,9 @@ def _domain_args(p):
     p.add_argument("--levels", nargs=2, type=int, default=[60, 137], metavar=("FIRST", "LAST"),
                    help="model levels, 137 is the lowest (default 60 137)")
     p.add_argument("--source", choices=era5.SOURCES, default=era5.DEFAULT_SOURCE,
-                   help="where the model-level data comes from: mars = CDS/MARS (default); mixed = ARCO-ERA5 (Google "
-                        "Cloud public data, no queue) for the model levels, CDS for surface, flux and static fields")
+                   help="where the data comes from: mars = CDS/MARS (default); mixed = ARCO-ERA5 (Google Cloud public "
+                        "data, no queue) for the model levels, CDS for surface, flux and static fields; arco = everything "
+                        "from ARCO-ERA5, no CDS account (needs netCDF4)")
     p.add_argument("--gridding", choices=era5.GRIDDINGS, default=era5.DEFAULT_GRIDDING,
                    help="--source mixed/arco only: exact = evaluate the spectral fields exactly at the grid points "
                         "(default); mars = reproduce MARS's own gridding step (Gaussian grid, then linear in latitude), "
@@ -75,14 +76,15 @@ _HELP = (
         ("--grid 0.25|0.5", "grid spacing (default 0.25)"),
         ("--levels FIRST LAST", "model levels, 137 is the lowest (default 60 137). All levels go in one request. "
          "To add levels later, download just those levels into the same raw directory; process finds data by content."),
-        ("--source mars|mixed", "where the model-level data comes from (default mars). mars: everything from "
+        ("--source mars|mixed|arco", "where the model-level data comes from (default mars). mars: everything from "
          "CDS/MARS. mixed: model levels from ARCO-ERA5 (Google's public ERA5 copy, read over HTTPS, no queue): "
          "T, U, V from spectral data, ETADOT from mass continuity, Q/CLWC/CIWC interpolated from the N320 grid, "
          "surface pressure from spectral LNSP; surface, flux and static fields still come from CDS. Needs "
          "--pressure lnsp. ARCO ends a few weeks before today and the run stops at once if a day is missing "
          "('use --source mars from ...'); after the final-ERA5 date the data is preliminary ERA5T. Use a new "
-         "--outdir when you change the source."),
-        ("--gridding exact|mars", "with --source mixed: how the spectral model-level fields are put on the grid. "
+         "--outdir when you change the source. arco: as mixed, and the surface, flux and static fields too come from "
+         "ARCO-ERA5 (global hourly NetCDF files cut to the box, needs netCDF4): no CDS account, no requests."),
+        ("--gridding exact|mars", "with --source mixed or arco: how the spectral model-level fields are put on the grid. "
          "exact (default): the spectral sums are evaluated at the grid points. mars: the same steps as MARS (full "
          "T639 synthesis on a Gaussian grid whose longitudes coincide with the grid, then linear interpolation in "
          "latitude), which smooths short waves, mostly in ETADOT, and reproduces MARS-route fields to numerical "
@@ -301,39 +303,61 @@ def cmd_cleanup(a):
     return 0
 
 
+def _arco_sources(cfg):
+    """(model-level downloader, NetCDF downloader or None, one-step function) for --source mixed/arco, else Nones."""
+    if cfg.source == "mars":
+        return None, None, None
+    from . import arco
+    ml = arco.ArcoDownloader(cfg)
+    stable = arco.check_range(cfg, ml.store)               # stops here, before anything is sent, if a day is missing
+    if cfg.end > stable:
+        LOG.warning("%s onwards the ARCO-ERA5 data is preliminary (ERA5T) and may still be revised by ECMWF",
+                    (stable + timedelta(days=1)).strftime("%d-%m-%Y"))
+    nc = None
+    if cfg.source == "arco":
+        from . import arconc
+        try:
+            arconc.check_range(cfg)
+        except arconc.ArcoRawUnavailable as e:
+            raise SystemExit(f"dcfe: {e}")
+        nc = arconc.NcDownloader(cfg)
+    LOG.info("model levels from ARCO-ERA5: %s%s", ml.summary(), f"; surface, flux, static: {nc.summary()}" if nc else "")
+    return ml, nc, (lambda: bool((nc and nc.step()) or ml.step()))
+
+
 def cmd_download(a):
     from .client import DatastoresClient
     from .download import Downloader
     cfg = _cfg(a)
     LOG.info("raw data: %s", cfg.rawdir)
-    arco_dl = None
-    if cfg.source == "mixed":
-        from . import arco
-        arco_dl = arco.ArcoDownloader(cfg)
-        stable = arco.check_range(cfg, arco_dl.store)          # stops here, before anything is sent, if a day is missing
-        if cfg.end > stable:
-            LOG.warning("%s onwards the ARCO-ERA5 data is preliminary (ERA5T) and may still be revised by ECMWF",
-                        (stable + timedelta(days=1)).strftime("%d-%m-%Y"))
-        LOG.info("model levels from ARCO-ERA5: %s", arco_dl.summary())
+    ml, nc, step = _arco_sources(cfg)
+    if cfg.source == "arco":                                # no CDS account, no queue: all local work
+        while step():
+            pass
+        LOG.info("%s", {**ml.summary(), **nc.summary()})
+        return 0 if not (ml.pending() or nc.pending()) else 1
     dl = Downloader(cfg, DatastoresClient(),
                     max_inflight={era5.DATASET_MARS: a.inflight_mars, era5.DATASET_SFC: a.inflight_sfc},
                     poll_seconds=a.poll, spans=_spans(a.spans), log=LOG.info,
                     **({"split_order": a.split_order} if a.split_order else {}))
     if a.once:
         ok = dl.settle() and dl.summary().get("failed", 0) == 0
-        while arco_dl and arco_dl.step():                   # local work, no waiting: do all of it
+        while ml and ml.step():                             # local work, no waiting: do all of it
             pass
-        ok = ok and not (arco_dl and arco_dl.pending())
+        ok = ok and not (ml and ml.pending())
     else:
-        ok = dl.run(idle=arco_dl.step if arco_dl else None)
-    LOG.info("%s", {**dl.summary(), **(arco_dl.summary() if arco_dl else {})})
+        ok = dl.run(idle=ml.step if ml else None)
+    LOG.info("%s", {**dl.summary(), **(ml.summary() if ml else {})})
     return 0 if ok or a.once else 1
 
 
 def cmd_plan(a):
     cfg = _make_config(a.start, a.end, a.area, a.grid, a.levels, pressure=a.pressure, source=a.source, gridding=a.gridding)
     units = plan(cfg, _spans(a.spans))
-    if cfg.source == "mixed":
+    if cfg.source == "arco":
+        print(f"{'arco-nc':14s} {'':6s}  surface, flux and static fields: one GRIB file per day and kind, cut from the global "
+              f"NetCDF files of ARCO-ERA5 (flux days {cfg.start - timedelta(days=1):%Y%m%d}-{cfg.end + timedelta(days=1):%Y%m%d}); no CDS request")
+    if cfg.source in ("mixed", "arco"):
         from .process import hours
         print(f"{'arco-zarr':14s} {len(hours(cfg)):6d}  one GRIB file per hour: model levels {cfg.level_first}-{cfg.level_last} "
               "(U V T Q ETADOT CLWC CIWC) and gridded LNSP, read from ARCO-ERA5, no queue")

@@ -27,8 +27,8 @@ Only ERA5 is supported. You choose the dates, the area, the grid and the model l
 | `--area N W S E` | latitude/longitude rectangle, degrees |
 | `--grid` | `0.25` (default) or `0.5` |
 | `--levels FIRST LAST` | model levels, default `60 137` (137 is the lowest level, at the surface). All levels of a run go into one request |
-| `--source` | where the model levels come from: `mars` (default, CDS/MARS) or `mixed` (ARCO-ERA5, no queue); see *Model levels from ARCO-ERA5* below |
-| `--gridding` | with `--source mixed`: `exact` (default) or `mars`, how the spectral fields are put on the grid; see *Exact or MARS gridding* below |
+| `--source` | `mars` (default, everything from CDS/MARS), `mixed` (model levels from ARCO-ERA5, no queue, the rest from CDS) or `arco` (everything from ARCO-ERA5, no CDS account); see *Model levels from ARCO-ERA5* below |
+| `--gridding` | with `--source mixed` or `arco`: `exact` (default) or `mars`, how the spectral fields are put on the grid; see *Exact or MARS gridding* below |
 | `--pressure` | surface pressure source: `lnsp` (default), `sp`, `spectral`; see *Surface pressure* below |
 | `--outdir DIR` | where everything of the run goes (default `out`): hourly files, raw data in `DIR/raw`, logs in `DIR/logs` |
 | `--rawdir DIR` | raw GRIB files (default `<outdir>/raw`); `process` searches it recursively |
@@ -250,9 +250,27 @@ What to know before using it:
   of the run is missing, `download` stops before sending anything and tells you from which date to use `--source mars`.
   A run cannot mix the two sources.
 * **ETADOT and levels.** As with MARS data, the ground boundary needs levels that end at 137.
-* Needs `numcodecs` (part of any zarr installation; `setup` installs it if the modules lack it). Data: Copernicus
+* Needs `numcodecs` (part of any zarr installation) and, for `--source arco`, `netCDF4`; `setup` installs what the modules lack. Data: Copernicus
   Climate Change Service (ERA5), via Google's ARCO-ERA5; see `NOTICE.md` for the licence and the citation.
 * Use a new `--outdir` when you change `--source`.
+
+### Everything from ARCO-ERA5 (`--source arco`)
+
+`--source arco` takes the model levels as `mixed` does and also the surface, flux and static fields from ARCO-ERA5, so
+**no CDS account and no request is needed**. These fields are in the bucket as hourly global NetCDF files (one per
+variable and day, about 50 MB; `raw/date-variable-single_level`). For each day `download` fetches the files one task at a
+time (flux day: 6 files, surface day: 9, static: 4 once), cuts the box, writes GRIB1 messages in the form of the MARS route
+(`ARCO_SL_<day>.grb`, `ARCO_FLUX_<day>.grb`, `ARCO_STATIC.grb`) and deletes the NetCDF files, so `process` is unchanged.
+It reads about 0.75 GB per day before the model levels (0.8 GB per hour), and needs `netCDF4`.
+
+* The fields are the CDS hourly ERA5 fields. Against the MARS route the NetCDF values are packed in 16 bit by CDS, so
+  surface and flux fields differ by up to about 4·10⁻⁴ of the field maximum (precipitation by 0.0003 mm per hour as an
+  absolute value); the flux accumulations are the hourly accumulations ending at the labelled hour, as in the MARS data.
+* Fluxes need one day before and one after the run, as with CDS. `download` stops at once if the first or last file is
+  not in the bucket yet (ARCO ends a few weeks before today).
+* `--pressure` must stay `lnsp`. Use a new `--outdir` when you change `--source`.
+
+`livetest/arco_nc_check.py` compares the result with MARS-route raw data.
 
 ### Exact or MARS gridding (`--gridding`)
 

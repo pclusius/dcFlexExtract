@@ -296,6 +296,8 @@ def _chunks(days: list[date], span: int, same_month: bool):
 
 def plan(cfg: Config, spans: Optional[dict] = None) -> list[Request]:
     """All units needed for cfg, ordered by start day. `spans` = days per request by group."""
+    if cfg.source == "arco":                     # everything from ARCO-ERA5: nothing is requested from CDS
+        return []
     spans = {**DEFAULT_SPANS, **(spans or {})}
     common = dict(domain=cfg.domain_tag, area=(cfg.north, cfg.west, cfg.south, cfg.east), grid=cfg.grid)
     pad = timedelta(days=era5.FLUX_PAD_DAYS)

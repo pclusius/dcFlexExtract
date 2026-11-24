@@ -36,7 +36,7 @@ DEFAULT_PRESSURE = "lnsp"
 
 # where the model-level data comes from: mars = CDS/MARS (everything from CDS); mixed = ARCO-ERA5 (Google) for the
 # model levels and their derivations (see arco.py), CDS for surface, flux and static fields
-SOURCES = ("mars", "mixed")
+SOURCES = ("mars", "mixed", "arco")
 DEFAULT_SOURCE = "mars"
 GRIDDINGS = ("exact", "mars")
 DEFAULT_GRIDDING = "exact"

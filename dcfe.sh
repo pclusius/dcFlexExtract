@@ -59,7 +59,7 @@ selftest() {
 }
 
 # Python packages dcfe needs: import name -> pip requirement. Installed only if the loaded modules lack them.
-declare -A PKG=( [eccodes]="eccodes>=2.38" [numpy]="numpy" [numcodecs]="numcodecs" [ecmwf.datastores]="ecmwf-datastores-client>=0.6" )
+declare -A PKG=( [eccodes]="eccodes>=2.38" [numpy]="numpy" [numcodecs]="numcodecs" [netCDF4]="netCDF4" [ecmwf.datastores]="ecmwf-datastores-client>=0.6" )
 
 setup_python() {
   echo "python: $(command -v "$PY") ($("$PY" -c 'import sys;print(sys.version.split()[0])'))"
