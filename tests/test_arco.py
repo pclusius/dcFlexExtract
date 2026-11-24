@@ -161,3 +161,30 @@ def test_downloader_is_resumable_and_does_one_hour_per_step(tmp_path):
         pass
     assert d2.summary() == {"arco_hours_done": 24, "arco_hours_todo": 0}
     assert not list(arco.hour_path(c, datetime(2023, 8, 30, 0)).parent.glob("*.part"))
+
+
+def test_latitude_rows_interpolate_linearly_between_gaussian_rows():
+    from dcfe import spectral
+    lat = 60.0 - 0.25 * np.arange(9)
+    rows, W = spectral.latitude_rows(lat, 360)
+    assert np.allclose(W.sum(axis=1), 1.0) and (W >= 0).all()
+    assert np.allclose(W @ rows, lat)                                # linear in latitude reproduces latitude exactly
+    assert len(rows) >= 9 and rows[0] > lat[0] and rows[-1] < lat[-1]  # the rows bracket the box
+    assert np.all(np.diff(rows) < 0)
+
+
+def test_gridding_mars_is_close_to_exact_for_smooth_fields(tmp_path):
+    bucket = FakeBucket()
+    exact = arco.HourBuilder(cfg(tmp_path), arco.Store(get=bucket)).build(datetime(2023, 8, 30, 14))
+    mars = arco.HourBuilder(cfg(tmp_path, gridding="mars"), arco.Store(get=bucket)).build(datetime(2023, 8, 30, 14))
+    assert not np.array_equal(exact.fields["T"][5], mars.fields["T"][5])          # a different evaluation ...
+    for name in ("T", "U", "V", "ETADOT"):
+        for k in (4, 7, 10):
+            a, b = exact.fields[name][k], mars.fields[name][k]
+            assert np.abs(a - b).max() <= 5e-3 * np.abs(a).max(), (name, k)       # ... but only slightly, T4 data is smooth
+    assert np.abs(exact.lnsp - mars.lnsp).max() < 1e-3
+
+
+def test_gridding_mars_is_only_for_model_levels_from_arco(tmp_path):
+    with pytest.raises(ValueError, match="gridding"):
+        cfg(tmp_path, source="mars", gridding="mars")

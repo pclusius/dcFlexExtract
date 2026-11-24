@@ -172,11 +172,15 @@ class HourBuilder:
         self.vo_levels = set(self.need_uv) | set(self.wanted)
         self._basis = None
         self._gg = None
+        # --gridding mars: synthesise on the Gaussian rows around the box and interpolate linearly in latitude
+        self.syn_lat, self.W = self.lat, None
+        if cfg.gridding == "mars":
+            self.syn_lat, self.W = spectral.latitude_rows(self.lat, int(round(90.0 / cfg.grid)))
 
     def _spectral(self, ncoef: int) -> spectral.Basis:
         if self._basis is None:
-            LOG.debug("ARCO: Legendre tables for T%d at %d x %d points", spectral.truncation(ncoef), len(self.lat), len(self.lon))
-            self._basis = spectral.Basis(self.lat, self.lon, spectral.truncation(ncoef))
+            LOG.debug("ARCO: Legendre tables for T%d at %d x %d points", spectral.truncation(ncoef), len(self.syn_lat), len(self.lon))
+            self._basis = spectral.Basis(self.syn_lat, self.lon, spectral.truncation(ncoef))
         return self._basis
 
     def _reduced(self):
@@ -231,6 +235,10 @@ class HourBuilder:
         H = spectral.continuity_flux(D, {k: v[0] for k, v in UV.items()}, {k: v[1] for k, v in UV.items()},
                                      lnsp, gx, gy, self.A, self.B)
         out["ETADOT"] = spectral.etadot_from_flux(H, np.exp(lnsp), self.A, self.B, cfg.level_first, cfg.level_last)
+        if self.W is not None:                     # MARS's last step: linear interpolation in latitude to the target rows
+            for name in ("U", "V", "T", "ETADOT"):
+                out[name] = {k: self.W @ v for k, v in out[name].items()}
+            lnsp = self.W @ lnsp
         LOG.debug("ARCO %s: ground flux |H| max %.2e Pa/s (must be 0)", T, float(np.abs(H[self.nlev]).max()))
         return Hour(T, lnsp, out, self.lat, self.lon)
 

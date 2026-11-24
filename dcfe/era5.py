@@ -38,6 +38,8 @@ DEFAULT_PRESSURE = "lnsp"
 # model levels and their derivations (see arco.py), CDS for surface, flux and static fields
 SOURCES = ("mars", "mixed")
 DEFAULT_SOURCE = "mars"
+GRIDDINGS = ("exact", "mars")
+DEFAULT_GRIDDING = "exact"
 
 # single-level analysis fields: name -> CDS variable name
 SFC_AN_VARS = {

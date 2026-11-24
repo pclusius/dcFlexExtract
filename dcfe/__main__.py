@@ -31,6 +31,10 @@ def _domain_args(p):
     p.add_argument("--source", choices=era5.SOURCES, default=era5.DEFAULT_SOURCE,
                    help="where the model-level data comes from: mars = CDS/MARS (default); mixed = ARCO-ERA5 (Google "
                         "Cloud public data, no queue) for the model levels, CDS for surface, flux and static fields")
+    p.add_argument("--gridding", choices=era5.GRIDDINGS, default=era5.DEFAULT_GRIDDING,
+                   help="--source mixed/arco only: exact = evaluate the spectral fields exactly at the grid points "
+                        "(default); mars = reproduce MARS's own gridding step (Gaussian grid, then linear in latitude), "
+                        "for consistency with older MARS-route data. Not better data, only comparable data")
     p.add_argument("--pressure", choices=era5.PRESSURE_SOURCES, default=era5.DEFAULT_PRESSURE,
                    help="source of the surface pressure: lnsp = exp(gridded LNSP from MARS) (default), "
                         "sp = ECMWF single-levels surface pressure, spectral = spectral LNSP through calc_etadot "
@@ -78,6 +82,11 @@ _HELP = (
          "--pressure lnsp. ARCO ends a few weeks before today and the run stops at once if a day is missing "
          "('use --source mars from ...'); after the final-ERA5 date the data is preliminary ERA5T. Use a new "
          "--outdir when you change the source."),
+        ("--gridding exact|mars", "with --source mixed: how the spectral model-level fields are put on the grid. "
+         "exact (default): the spectral sums are evaluated at the grid points. mars: the same steps as MARS (full "
+         "T639 synthesis on a Gaussian grid whose longitudes coincide with the grid, then linear interpolation in "
+         "latitude), which smooths short waves, mostly in ETADOT, and reproduces MARS-route fields to numerical "
+         "precision. Use it only for consistency with MARS-route data; it is not better data."),
         ("--pressure lnsp|sp|spectral", "where the surface pressure comes from (default lnsp). lnsp: exp(gridded "
          "LNSP), carried in the model-level request, no Fortran. sp: ECMWF single-levels surface_pressure, no "
          "Fortran. spectral: spectral LNSP through the Fortran calc_etadot, flex_extract's way. Use the same "
@@ -228,7 +237,7 @@ def _make_config(*args, **kw):
 def _cfg(a):
     rawdir = a.rawdir or str(Path(a.outdir) / "raw")
     return _make_config(a.start, a.end, a.area, a.grid, a.levels, rawdir=rawdir, outdir=a.outdir, pressure=a.pressure,
-                       source=a.source)
+                       source=a.source, gridding=a.gridding)
 
 
 def cmd_process(a):
@@ -322,7 +331,7 @@ def cmd_download(a):
 
 
 def cmd_plan(a):
-    cfg = _make_config(a.start, a.end, a.area, a.grid, a.levels, pressure=a.pressure, source=a.source)
+    cfg = _make_config(a.start, a.end, a.area, a.grid, a.levels, pressure=a.pressure, source=a.source, gridding=a.gridding)
     units = plan(cfg, _spans(a.spans))
     if cfg.source == "mixed":
         from .process import hours

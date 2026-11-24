@@ -201,3 +201,27 @@ class ReducedGG:
         (p, wl) = plan
         rows = [(1 - wx) * vals[i0] + wx * vals[i1] for (i0, i1, wx) in p]
         return (1 - wl) * rows[0] + wl * rows[1]
+
+
+def gaussian_latitudes(n: int) -> np.ndarray:
+    """Latitudes (degrees, north to south) of the regular Gaussian grid with n latitudes between the pole and the equator."""
+    x, _ = np.polynomial.legendre.leggauss(2 * n)
+    return np.degrees(np.arcsin(x))[::-1]
+
+
+def latitude_rows(target_lat, n: int):
+    """The Gaussian rows (N=n) that bracket the target latitudes, and the weights W[target, row] of the linear
+    interpolation in latitude between them (rows without a target between them are dropped). This is the last step of
+    MARS's gridding of spectral fields: full-resolution synthesis on the Gaussian grid whose longitudes coincide with
+    the target grid, then linear interpolation in latitude. Targets beyond the outermost row take that row's value."""
+    g = gaussian_latitudes(n)
+    t = np.asarray(target_lat, float)
+    i = np.clip(np.searchsorted(-g, -t, side="right") - 1, 0, len(g) - 2)            # g[i] >= t > g[i+1]
+    w = np.clip((t - g[i + 1]) / (g[i] - g[i + 1]), 0.0, 1.0)
+    rows = np.unique(np.concatenate([i, i + 1]))
+    pos = {r: j for j, r in enumerate(rows)}
+    W = np.zeros((len(t), len(rows)))
+    for k in range(len(t)):
+        W[k, pos[i[k]]] += w[k]
+        W[k, pos[i[k] + 1]] += 1.0 - w[k]
+    return g[rows], W

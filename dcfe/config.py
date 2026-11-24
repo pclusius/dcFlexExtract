@@ -38,6 +38,7 @@ class Config:
     outdir: Path = Path("out")
     pressure: str = era5.DEFAULT_PRESSURE      # lnsp | sp | spectral
     source: str = era5.DEFAULT_SOURCE          # mars | mixed
+    gridding: str = era5.DEFAULT_GRIDDING      # exact | mars (spectral data from ARCO only)
 
     def __post_init__(self):
         if self.end < self.start:
@@ -52,8 +53,13 @@ class Config:
             raise ValueError(f"pressure must be one of {era5.PRESSURE_SOURCES}")
         if self.source not in era5.SOURCES:
             raise ValueError(f"source must be one of {era5.SOURCES}")
-        if self.source == "mixed" and self.pressure != "lnsp":
-            raise ValueError("--source mixed takes the surface pressure from the spectral LNSP of ARCO-ERA5: "
+        if self.gridding not in era5.GRIDDINGS:
+            raise ValueError(f"gridding must be one of {era5.GRIDDINGS}")
+        if self.gridding != era5.DEFAULT_GRIDDING and self.source == "mars":
+            raise ValueError("--gridding mars only applies to model levels read from ARCO-ERA5 "
+                             "(--source mixed or arco); the MARS route is gridded by MARS itself")
+        if self.source in ("mixed", "arco") and self.pressure != "lnsp":
+            raise ValueError("--source mixed and arco take the surface pressure from the spectral LNSP of ARCO-ERA5: "
                              "use --pressure lnsp (the default)")
         if self.grid not in era5.VALID_GRIDS:
             raise ValueError(f"grid must be one of {era5.VALID_GRIDS}")
@@ -63,11 +69,11 @@ class Config:
     @classmethod
     def make(cls, start, end, area, grid=0.25, levels=era5.DEFAULT_LEVELS,
              rawdir="raw", outdir="out", pressure=era5.DEFAULT_PRESSURE,
-             source=era5.DEFAULT_SOURCE) -> "Config":
+             source=era5.DEFAULT_SOURCE, gridding=era5.DEFAULT_GRIDDING) -> "Config":
         """area = (north, west, south, east); levels = (first, last)."""
         n, w, s, e = (float(x) for x in area)
         return cls(parse_date(start), parse_date(end), n, w, s, e, float(grid),
-                   int(levels[0]), int(levels[1]), Path(rawdir), Path(outdir), pressure, source)
+                   int(levels[0]), int(levels[1]), Path(rawdir), Path(outdir), pressure, source, gridding)
 
     @property
     def domain_tag(self) -> str:

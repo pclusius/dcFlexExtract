@@ -28,6 +28,7 @@ Only ERA5 is supported. You choose the dates, the area, the grid and the model l
 | `--grid` | `0.25` (default) or `0.5` |
 | `--levels FIRST LAST` | model levels, default `60 137` (137 is the lowest level, at the surface). All levels of a run go into one request |
 | `--source` | where the model levels come from: `mars` (default, CDS/MARS) or `mixed` (ARCO-ERA5, no queue); see *Model levels from ARCO-ERA5* below |
+| `--gridding` | with `--source mixed`: `exact` (default) or `mars`, how the spectral fields are put on the grid; see *Exact or MARS gridding* below |
 | `--pressure` | surface pressure source: `lnsp` (default), `sp`, `spectral`; see *Surface pressure* below |
 | `--outdir DIR` | where everything of the run goes (default `out`): hourly files, raw data in `DIR/raw`, logs in `DIR/logs` |
 | `--rawdir DIR` | raw GRIB files (default `<outdir>/raw`); `process` searches it recursively |
@@ -239,11 +240,11 @@ as the MARS data, so `process` is unchanged. `download` is resumable per hour. D
 
 What to know before using it:
 
-* **The numbers differ somewhat from the MARS route.** MARS's own conversion to a lat-lon grid is not an exact
-  evaluation of the spectral data (the same effect as `--pressure lnsp` against `spectral`: 20 Pa rms in SP), so T, U, V
-  differ by up to about 1% near the ground and Q, CLWC, CIWC by the interpolation. The ARCO values are the exact
-  spectral ones. On the 2023-08-30 14 UTC test box ETADOT differs from MARS's by 3-10% (rms) in the middle levels; the
-  cause (MARS grid conversion or the IFS's own ETADOT) is not settled. FLEXPART has not been run on either route.
+* **The numbers differ somewhat from the MARS route, and the ARCO values are the exact ones.** MARS does not hand over the
+  spectral field exactly at your grid points; it smooths it a little (see *Exact or MARS gridding*). The effect is
+  0.01% in T, below 1% in U and V (near the ground up to 3%), about 8% (rms, levels 60-137) in ETADOT and 20 Pa rms in SP.
+  Q, CLWC and CIWC are interpolated from the N320 grid. The ETADOT computed here from the continuity equation is within 1%
+  of the model's own spectral ETADOT. FLEXPART has not been run on either route.
 * **Dates.** ARCO ends a few weeks before today (all three of its wind, moisture and surface-pressure stores are needed;
   the earliest end counts) and the final-ERA5 stores end months earlier; days after that are preliminary ERA5T. If a day
   of the run is missing, `download` stops before sending anything and tells you from which date to use `--source mars`.
@@ -252,6 +253,23 @@ What to know before using it:
 * Needs `numcodecs` (part of any zarr installation; `setup` installs it if the modules lack it). Data: Copernicus
   Climate Change Service (ERA5), via Google's ARCO-ERA5; see `NOTICE.md` for the licence and the citation.
 * Use a new `--outdir` when you change `--source`.
+
+### Exact or MARS gridding (`--gridding`)
+
+ERA5's model-level fields are spectral (T639). For a lat-lon grid MARS first synthesises the full field on a regular
+Gaussian grid (N360 for 0.25 degrees, whose longitudes coincide with the lat-lon grid) and then interpolates **linearly
+in latitude** to your latitudes (the MARS defaults: `truncation=AUTO`, `intgrid=AUTO`, `interpolation=linear`). Linear
+interpolation between rows damps the shortest waves. T, U, V hardly notice, but ETADOT and divergence carry 3-38% of
+their variance at wavenumbers above 320, which is why MARS's 0.25 degree ETADOT differs by about 8% from the exact field.
+
+* `--gridding exact` (default): the spectral sums are evaluated exactly at your grid points. This is closest to the
+  model's own field.
+* `--gridding mars`: repeats MARS's steps (Gaussian rows around your box, linear interpolation in latitude). U, V, T
+  then agree with MARS-route data to numerical precision and ETADOT to about 1% (the difference to the model's own ETADOT
+  of the continuity calculation). **Use it only when you need consistency with data made by the MARS route, for instance
+  to continue an older series. It is not better data, only comparable data.** It costs a few more rows per run.
+
+`livetest/gridding_check.py` compares both with a MARS raw file.
 
 ### Vertical velocity (ETADOT) and the integration boundary
 
