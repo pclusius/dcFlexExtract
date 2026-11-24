@@ -307,6 +307,12 @@ def _arco_sources(cfg):
     """(model-level downloader, NetCDF downloader or None, one-step function) for --source mixed/arco, else Nones."""
     if cfg.source == "mars":
         return None, None, None
+    if cfg.source == "arco":
+        try:
+            import netCDF4                                  # noqa: F401  checked first, not after hours of work
+        except ImportError:
+            raise SystemExit("dcfe: --source arco needs the Python package netCDF4, which this Python does not have. "
+                             "Run './dcfe.sh setup --no-fortran' (it installs only what is missing), or load a module that provides it.")
     from . import arco
     ml = arco.ArcoDownloader(cfg)
     stable = arco.check_range(cfg, ml.store)               # stops here, before anything is sent, if a day is missing
