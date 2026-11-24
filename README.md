@@ -2,13 +2,85 @@
 
 ERA5 → hourly FLEXPART input files, with the download **decoupled** from the post-processing.
 
-* **download** asks CDS for the data, survives interruptions and days-long queues, and never throws away
-  what it already has.
-* **process** turns any directory of compliant ERA5 GRIB files (downloaded by `download` *or by hand*) into
-  hourly FLEXPART files, running the Fortran `calc_etadot`.
+## In short
 
-Only ERA5 is supported. You choose the dates, the area, the grid and the model levels; everything else is fixed.
-`./dcfe.sh --help` lists all options with their use, `./dcfe.sh <command> --help` shows one command.
+```
+A="--start 20230830 --end 20230902 --area 61 21 59 25 --levels 60 137 --source mixed --outdir /scratch/me/run1"
+
+./dcfe.sh setup --no-fortran     # once: checks Python packages, installs only what is missing
+./dcfe.sh download $A            # model levels from ARCO-ERA5 (no queue), surface and fluxes from CDS; safe to stop and restart
+./dcfe.sh process  $A            # writes /scratch/me/run1/EA025YYMMDDHH, one file per hour, ready for FLEXPART
+```
+
+* **You choose** dates, area, grid and model levels. Everything else is fixed; only ERA5 is supported.
+* **`download`** survives interruptions and never throws away what it has. **`process`** turns *any* directory of
+  compliant ERA5 GRIB files (downloaded by `download` or by hand) into the hourly files.
+* **`--source`** decides where the data comes from (see the first chart). `mixed` is the fast route and the one the
+  examples use: the model levels come from Google's public ARCO-ERA5 without a queue. ARCO ends a few weeks before today; for
+  later days `download` stops *before* sending anything and tells you to use `--source mars` from a given date.
+  `arco` needs no CDS account at all. `mars` (everything from CDS/MARS) is what the program does if `--source` is left out.
+* `./dcfe.sh --help` lists all options with their use, `./dcfe.sh <command> --help` shows one command.
+
+### How the data flows
+
+```mermaid
+flowchart LR
+  subgraph SRC["download: resumable, one raw file per day, hour or request"]
+    direction TB
+    Z["<b>ARCO-ERA5</b> (Google, no queue)<br/>model levels: T U V Q CLWC CIWC LNSP<br/>ETADOT from mass continuity"]
+    NC["<b>ARCO-ERA5 NetCDF</b> (no queue)<br/>surface, flux, static fields"]
+    SL["<b>CDS single levels</b> (queue of minutes)<br/>surface, flux, static fields"]
+    ML["<b>CDS / MARS</b> (queue of hours to days)<br/>model levels, all fields"]
+  end
+  Z -- "mixed, arco" --> RAW[("raw GRIB files<br/>&lt;outdir&gt;/raw")]
+  SL -- "mars, mixed" --> RAW
+  NC -- "arco" --> RAW
+  ML -- "mars" --> RAW
+  RAW --> P["<b>process</b><br/>fluxes: accumulations to rates<br/>ETADOT: vertical velocity from the ground<br/>surface pressure from LNSP"]
+  P --> OUT["<b>EA025YYMMDDHH</b><br/>one file per hour for FLEXPART"]
+  OWN["your own compliant ERA5 GRIB files"] -.-> RAW
+```
+
+| `--source` | model levels | surface, flux, static | needs | speed |
+|---|---|---|---|---|
+| `mars` (program default) | CDS/MARS | CDS | CDS account | the MARS queue: hours to days |
+| `mixed` | ARCO-ERA5 | CDS | CDS account, `numcodecs` | no queue for the model levels, CDS single levels in minutes |
+| `arco` | ARCO-ERA5 | ARCO-ERA5 NetCDF | `numcodecs`, `netCDF4` | no queue, no account; reads about 0.75 GB per day plus 0.8 GB per hour |
+
+### Which route?
+
+```mermaid
+flowchart TD
+  Q1{"Does your period end more than<br/>a few weeks before today?"}
+  Q1 -- no --> M["<b>--source mars</b><br/>ARCO has not caught up; <code>download</code> says from which date"]
+  Q1 -- yes --> Q2{"Do you have a CDS account?"}
+  Q2 -- no --> A["<b>--source arco</b><br/>everything from ARCO-ERA5"]
+  Q2 -- yes --> X["<b>--source mixed</b><br/>fast, the usual choice"]
+  X --> Q3{"Must the fields match<br/>older MARS-route data?"}
+  A --> Q3
+  Q3 -- yes --> G["add <b>--gridding mars</b><br/>same smoothing as MARS<br/>(not better data, only comparable)"]
+  Q3 -- no --> E["keep <b>--gridding exact</b> (default)<br/>spectral fields evaluated exactly at your grid points"]
+```
+
+### Where ETADOT comes from
+
+ARCO-ERA5 does not hold the model's vertical velocity, so `mixed` and `arco` compute it from the mass continuity equation
+with the divergence of **all 137 levels**. It agrees within 1 % (rms) with the model's own spectral ETADOT. MARS delivers the
+same spectral field, but smooths it on its way to a 0.25° grid, which is why the two routes differ by about 8 % in ETADOT.
+
+```mermaid
+flowchart LR
+  subgraph ARCO["mixed / arco"]
+    D["divergence, vorticity, LNSP<br/>spectral T639, all 137 levels"] --> C["mass continuity<br/>at your grid points"] --> E1["ETADOT"]
+  end
+  subgraph MARSR["mars"]
+    S["ETADOT as spectral T639<br/>(archived by the model)"] --> N["Gaussian grid N360,<br/>then linear in latitude"] --> E2["ETADOT, slightly smoothed"]
+  end
+  E1 -. "within 1 % of the spectral field" .- S
+  E1 -. "about 8 % from" .- E2
+```
+
+Details and checks: [*Exact or MARS gridding*](#exact-or-mars-gridding---gridding) and `docs/etadot/`.
 
 <video src="docs/mars_server_persp.mp4" controls muted width="100%">
   Your viewer does not play embedded video:
@@ -87,7 +159,7 @@ Modules first: `dcfe.sh` installs nothing if the environment already provides wh
 ./dcfe.sh selftest            # re-run just the calc_etadot check (compares fort.15 byte for byte)
 ```
 
-Needs: Python 3 with `numpy`, the ecCodes Python binding (`eccodes`) and `ecmwf-datastores-client`. Anything the
+Needs: Python 3 with `numpy`, the ecCodes Python binding (`eccodes`), `ecmwf-datastores-client`, `numcodecs` (`--source mixed`, `arco`) and `netCDF4` (`--source arco`). Anything the
 loaded modules do not provide is pip-installed into a `.venv` that still sees the module packages
 (`--system-site-packages`). A working `~/.cdsapirc` (`url:` and `key:` lines) is read for CDS access.
 
@@ -103,7 +175,7 @@ default download have been run on Roihu; the spectral route is still being teste
 ## Use
 
 ```
-A="--start 20230830 --end 20230902 --area 61 21 59 25 --grid 0.25 --levels 60 137 --outdir /scratch/me/era5_run1"
+A="--start 20230830 --end 20230902 --area 61 21 59 25 --grid 0.25 --levels 60 137 --source mixed --outdir /scratch/me/era5_run1"
 
 ./dcfe.sh plan     $A            # what would be requested (units, expected message counts)
 ./dcfe.sh download $A            # loop until everything is downloaded; safe to stop (Ctrl-C) and restart
@@ -125,7 +197,7 @@ A lock on the manifest stops a second copy from starting while one is still work
 
 ```
 # crontab -e   (every 30 minutes; use absolute paths, cron has no login environment)
-*/30 * * * * cd /home/me/dcFlexExtract && ./dcfe.sh download --once --start 20230830 --end 20230902 --area 61 21 59 25 --grid 0.25 --levels 60 137 --outdir /scratch/me/era5_run1 >> /scratch/me/era5_run1_cron.out 2>&1
+*/30 * * * * cd /home/me/dcFlexExtract && ./dcfe.sh download --once --start 20230830 --end 20230902 --area 61 21 59 25 --grid 0.25 --levels 60 137 --source mixed --outdir /scratch/me/era5_run1 >> /scratch/me/era5_run1_cron.out 2>&1
 ```
 
 * The exit status is 0 even if some units failed; look for `FAILED` in `<outdir>/logs/` or run
