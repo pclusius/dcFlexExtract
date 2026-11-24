@@ -48,9 +48,18 @@ Only ERA5 is supported. You choose the dates, the area, the grid and the model l
 | option | meaning |
 |---|---|
 | `--check` | only report what is missing for each hour; writes nothing |
+| `--remove-raw` | when every hour is written, delete the raw files the run used and the download manifest; see *Removing raw files* |
 | `--etadot-boundary ground\|top` | vertical velocity integrated from the ground (default) or, as flex_extract did, from the top of the retrieved levels; see *Vertical velocity* |
 | `--exe PATH` | the `calc_etadot` executable (only for `--pressure spectral`) |
 | `--scratch DIR`, `--keep-scratch` | per-hour working files (default `<outdir>/.scratch`); keep them after the run |
+
+#### Removing raw files
+
+`process` keeps the raw files, so it can be re-run with other options. `process --remove-raw` deletes them after the
+last hourly file has been written, never earlier and never if any hour is missing. It removes only raw files that were
+used and whose data all lie within the period plus one day either side (the flux padding), so a file that also holds other days is kept
+(and reported). Empty directories and the finished `manifest.json` go too, so a later `download` starts afresh. It cannot be undone.
+Output files are not touched.
 
 **`plan`** also takes `--show-request` (print the CDS request bodies) and `--spans`. **`cleanup`** takes `--outdir` and
 `--yes` (really delete finished CDS jobs; without it only the number is shown). **`setup`** takes `--no-fortran`.

@@ -87,3 +87,17 @@ def test_missing_for_with_no_flux_data_at_all_reports_instead_of_crashing(tmp_pa
     ix = RawIndex.from_dir(tmp_path)                       # empty directory
     miss = ix.missing_for(datetime(2023, 8, 30, 14))
     assert "LSP" in miss and "SSR" in miss and "SD" in miss
+
+
+def test_remove_raw_deletes_only_files_inside_the_period(raw):
+    from datetime import date
+    from dcfe.config import Config
+    from dcfe.process import remove_raw
+    d, t0 = raw
+    (d / "sub").mkdir()
+    (d / "sub" / "far.grb").write_bytes(make_msg(era5.PARAM_ID[era5.SFC_ORDER[0]], t0 + timedelta(days=9), 1.0))
+    ix = RawIndex.from_dir(d)
+    cfg = Config.make(t0.strftime("%Y%m%d"), t0.strftime("%Y%m%d"), (61, 21, 59, 25), 0.25, rawdir=d)
+    gone = {p.name for p in remove_raw(ix, cfg)}
+    assert gone == {"flux.grb", "sfc.grb", "static.grb"}      # the file 9 days later holds data of another period
+    assert (d / "sub" / "far.grb").exists() and not (d / "flux.grb").exists()

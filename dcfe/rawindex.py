@@ -38,14 +38,24 @@ class RawIndex:
         self.sp: dict[datetime, gribio.MsgRef] = {}         # ECMWF surface pressure
         self.ml: dict[tuple[int, datetime, int], gribio.MsgRef] = {}
         self.files = 0
+        self.span: dict[str, tuple[datetime, datetime]] = {}   # file -> first and last valid time of its time-dependent messages
         for p in sorted(paths):
             self.files += 1
             for r in gribio.scan(p):
                 self._add(r)
+                if r.param_id not in _STATIC_IDS:
+                    lo, hi = self.span.get(r.path, (r.valid, r.valid))
+                    self.span[r.path] = (min(lo, r.valid), max(hi, r.valid))
 
     @classmethod
     def from_dir(cls, rawdir) -> "RawIndex":
         return cls(Path(rawdir).rglob("*.grb"))
+
+    def used_paths(self) -> set[str]:
+        """files that hold at least one message the index kept"""
+        refs = [*self.flux.values(), *self.sfc.values(), *self.static.values(), *self.lnsp.values(),
+                *self.glnsp.values(), *self.sp.values(), *self.ml.values()]
+        return {r.path for r in refs}
 
     def grid_sizes(self) -> dict[int, int]:
         """number of values -> how many gridded (non-spectral) messages have that size; a single entry unless

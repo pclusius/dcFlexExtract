@@ -103,6 +103,8 @@ _HELP = (
     ], None),
     ("PROCESS OPTIONS", None, [
         ("--check", "only report what is missing for each hour; write nothing"),
+        ("--remove-raw", "when all hours are written, delete the raw files the run used (only files inside the period "
+         "plus one day either side) and the download manifest; never partial output. Not undoable"),
         ("--etadot-boundary ground|top", "vertical velocity: integrate from the ground, where it is zero (default, "
          "correct for any level range), or from the top of the retrieved levels as flex_extract did (reproduces "
          "old output; wrong unless level 1 is included)"),
@@ -199,6 +201,9 @@ def build_parser():
     pr.add_argument("--scratch", default=None, help="scratch dir (default: <outdir>/.scratch)")
     pr.add_argument("--keep-scratch", action="store_true", help="do not delete the per-hour working files")
     pr.add_argument("--check", action="store_true", help="only report what is missing for each hour")
+    pr.add_argument("--remove-raw", action="store_true",
+                    help="after all hours are written, delete the raw files this run used (only files whose data lies "
+                         "inside the period plus one day either side) and the download manifest")
     pr.add_argument("--etadot-boundary", choices=("ground", "top"), default="ground",
                     help="ETADOT (vertical velocity) is integrated upward from the ground, where it must be zero "
                          "(default, correct for any level range), or - as flex_extract does - downward from the "
@@ -263,6 +268,12 @@ def cmd_process(a):
             LOG.info("wrote %s", f.name)
             LOG.debug("output %s: %d bytes, %d messages", f, f.stat().st_size, count_messages(str(f)))
     LOG.info("%s", "missing data for %d hour(s)" % bad if bad else "all hours complete")
+    if a.remove_raw and not a.check:
+        if bad or not all((out / out_name(cfg, T)).exists() for T in hours(cfg)):
+            LOG.warning("--remove-raw: the output is not complete, raw files are kept")
+        else:
+            from .process import remove_raw
+            remove_raw(ix, cfg)
     return 1 if bad else 0
 
 

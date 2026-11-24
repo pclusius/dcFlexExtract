@@ -229,3 +229,34 @@ def build_hour(ix: RawIndex, cfg: Config, T: datetime, exe: str | Path, outdir: 
         shutil.rmtree(work, ignore_errors=True)
         LOG.debug("%s: scratch dir %s removed", out_name(cfg, T), work)
     return final
+
+
+def remove_raw(ix: RawIndex, cfg: Config) -> list[Path]:
+    """Delete the raw files this run used, once every hourly output exists (the caller checks that). A file is only
+    removed if all its time-dependent messages lie inside the period plus the flux padding, so data for days that
+    were not processed is never lost. Empty directories and a finished download manifest go with them. Returns
+    the deleted files."""
+    pad = timedelta(days=era5.FLUX_PAD_DAYS)
+    lo = datetime.combine(cfg.start, datetime.min.time()) - pad
+    hi = datetime.combine(cfg.end, datetime.min.time()) + pad + timedelta(days=1, hours=12)
+    gone, freed = [], 0
+    for path in sorted(ix.used_paths()):
+        a, b = ix.span.get(path, (lo, lo))
+        if lo <= a and b <= hi:
+            size = Path(path).stat().st_size
+            Path(path).unlink()
+            LOG.debug("removed raw file %s (%d bytes)", path, size)
+            gone.append(Path(path))
+            freed += size
+        else:
+            LOG.info("kept %s: it holds data outside %s - %s", path, lo.date(), hi.date())
+    root = Path(cfg.rawdir)
+    dom = root / cfg.domain_tag
+    if dom.is_dir() and not any(dom.rglob("*.grb")) and (dom / "manifest.json").exists():
+        (dom / "manifest.json").unlink()
+        LOG.info("removed %s (no raw files left; a new download starts afresh)", dom / "manifest.json")
+    for d in sorted((q for q in root.rglob("*") if q.is_dir()), key=lambda q: len(q.parts), reverse=True):
+        if not any(d.iterdir()):
+            d.rmdir()
+    LOG.info("removed %d raw file(s), %.1f MB", len(gone), freed / 1e6)
+    return gone
