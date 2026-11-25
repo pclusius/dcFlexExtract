@@ -270,6 +270,23 @@ as delivered by CDS (FLEXPART v11 reads GRIB1, GRIB2 and mixed). Checked against
 identical layout and surface fields; model-level fields differ by at most 2.5e-4 of a field's maximum (ETADOT
 near the surface), others far less.
 
+### Precipitation units and GRIB editions (warning)
+
+The convective (CP) and large-scale (LSP) precipitation fields leave dcfe in the same unit (mm/h) and as GRIB1
+messages, as in the files of the original flex_extract. FLEXPART treats the two fields differently when they are
+GRIB2: its GRIB2 reader divides CP (and snow depth) by 1000 but not LSP (`conversion_factor` in
+`windfields_mod.f90`, still so in the FLEXPART master of November 2026). The GRIB1 reader uses 1 for both. We
+checked this by rewriting the CP messages of the same files as GRIB2 (values unchanged): FLEXPART then reads a
+maximum CP of 3.8e-4 instead of 3.8e-1 mm/h, while LSP is unchanged.
+
+dcfe's output is therefore correct for FLEXPART only because the flux fields are GRIB1. FLEXPART relies on the
+ECMWF data keeping the grib editions it has today (flux fields in GRIB1, model levels in GRIB2), and that is not
+something anyone can promise: ECMWF has been moving its products to GRIB2 for years. If you change the flux fields
+to GRIB2, or if a future version of this software or of the data source delivers them so, CP will be 1000 times too
+small in FLEXPART, which makes wet deposition and scavenging by convective rain far too weak, with no error message.
+Keep the flux messages GRIB1, or fix or ask about the factor in FLEXPART first (draft question in
+`docs/flexpart-cp-grib2-question.md`).
+
 ### Surface pressure (`--pressure`)
 
 FLEXPART takes the pressure of every model level from the surface pressure SP (A and B coefficients), so SP
