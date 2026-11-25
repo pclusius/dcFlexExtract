@@ -21,7 +21,7 @@ H = 0, which is only right if that top is the model top (level 1): for levels fi
 at the top of level `first` is not zero (here about 0.04 Pa/s) and the error reappears with alternating
 sign in every level, leaving a non-zero H at the ground. Starting at the ground instead, where
 H = eta_dot * dp/deta is exactly 0, gives the correct profile for any level range ending at the lowest
-level (checked against mass continuity, see livetest/etadot_continuity_test.py).
+level.
 
 boundary="ground"  integrate upward from the lowest model level, H = 0 at the surface (default)
 boundary="top"     flex_extract's behaviour: H = 0 above the first retrieved level"""

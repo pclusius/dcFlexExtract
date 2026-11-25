@@ -80,7 +80,7 @@ flowchart LR
   E1 -. "about 8 % from" .- E2
 ```
 
-Details and checks: [*Exact or MARS gridding*](#exact-or-mars-gridding---gridding) and `docs/etadot/`.
+Details and checks: [*Exact or MARS gridding*](#exact-or-mars-gridding---gridding).
 
 <video src="docs/mars_server_persp.mp4" controls muted width="100%">
   Your viewer does not play embedded video:
@@ -300,7 +300,7 @@ matters. Three sources:
 
 They are not identical: on the 2023-08-30 14 UTC test box exp(gridded LNSP) differs from the spectral SP by 20 Pa
 rms (max 52 Pa) and ECMWF's SP by 29 Pa rms (max 102 Pa); the effect on model-level heights is under 4 m (`lnsp`)
-or 8 m (`sp`) at level 60 and nil near the ground (`livetest/pressure_analysis.py`). With `lnsp` and `sp`
+or 8 m (`sp`) at level 60 and nil near the ground. With `lnsp` and `sp`
 `process` needs no Fortran build; ETADOT is converted by `dcfe/etadot.py` in all three. Use a new `--outdir` when
 you change source, and the same `--pressure` for `download` and `process`.
 
@@ -359,8 +359,6 @@ It reads about 0.75 GB per day before the model levels (0.8 GB per hour), and ne
   not in the bucket yet (ARCO ends a few weeks before today).
 * `--pressure` must stay `lnsp`. Use a new `--outdir` when you change `--source`.
 
-`livetest/arco_nc_check.py` compares the result with MARS-route raw data.
-
 ### Exact or MARS gridding (`--gridding`)
 
 ERA5's model-level fields are spectral (T639). For a lat-lon grid MARS first synthesises the full field on a regular
@@ -376,8 +374,6 @@ their variance at wavenumbers above 320, which is why MARS's 0.25 degree ETADOT 
   of the continuity calculation). **Use it only when you need consistency with data made by the MARS route, for instance
   to continue an older series. It is not better data, only comparable data.** It costs a few more rows per run.
 
-`livetest/gridding_check.py` compares both with a MARS raw file.
-
 ### Vertical velocity (ETADOT) and the integration boundary
 
 ERA5 gives `eta_dot` on full levels; FLEXPART needs `eta_dot * dp/deta` on half levels, which `calc_etadot`
@@ -386,7 +382,7 @@ the **retrieved** levels with 0, which is only right when level 1 is included. F
 value there is not zero (about 0.04 Pa/s in a test over southern Finland), and the error appears with
 alternating sign in every level and leaves a non-zero vertical velocity at the ground. dcFlexExtract therefore
 integrates upward from the ground, where the value is exactly zero, which is correct for any level range ending
-at the lowest level (checked against mass continuity: `livetest/etadot_continuity_test.py`).
+at the lowest level.
 
 * `--etadot-boundary ground` (default): the corrected ETADOT. The Fortran step still runs; before its ETADOT is
   replaced, our own implementation of its calculation must reproduce it (otherwise the run stops).
@@ -406,25 +402,19 @@ still being tested. Go in this order; stop at the first failing step and note th
    *found*. If one is `NOT found`, only that package is pip-installed into `.venv`; note which one it was. Then
    `calc_etadot works` must appear. If the Fortran link fails, read the error: add the module it asks for
    (e.g. openmpi, netcdf-fortran) to `site_modules_fortran` in `sites/csc.sh`. Without Fortran use `setup --no-fortran`.
-4. **Tests:** `python -m pytest -q tests` (needs pytest; no network). Expect all to pass.
-5. **Plan, no network:** `./dcfe.sh plan --start 20230830 --end 20230830 --area 61 21 59 25 --levels 60 137`
+4. **Plan, no network:** `./dcfe.sh plan --start 20230830 --end 20230830 --area 61 21 59 25 --levels 60 137`
    prints 4 units, one of them `ML_all-LNSP_L060-137` (the only MARS request).
-6. **Small download** in `tmux` on a login node, outdir on scratch:
+5. **Small download** in `tmux` on a login node, outdir on scratch:
    `./dcfe.sh download --start 20230830 --end 20230830 --area 61 21 59 25 --levels 60 137 --outdir /scratch/<project>/dcfe_test`.
    The model-level request waits in the MARS queue (hours). Interrupt with Ctrl-C and run the same command again
    to check that it re-attaches. Look at `<outdir>/logs/`.
-7. **Process the default route** (no Fortran): same options plus `process`. Expect 24 files `EA02523083000`..`23`
+6. **Process the default route** (no Fortran): same options plus `process`. Expect 24 files `EA02523083000`..`23`
    with 566 messages each (`grib_count`), and a log that says `ETADOT boundary: ground  pressure: lnsp`.
-8. **Other routes:** `--pressure sp` (needs its own single-levels download) and `--pressure spectral` (needs the
+7. **Other routes:** `--pressure sp` (needs its own single-levels download) and `--pressure spectral` (needs the
    spectral LNSP download and `calc_etadot`; note the seconds per hour from the log, and the grid size).
-9. **Cron, optional:** `download --once` from cron on a login node, if the site allows it (see above).
+8. **Cron, optional:** `download --once` from cron on a login node, if the site allows it (see above).
 10. **Report back:** versions printed by `setup`, module list (`module list`), timings, anything that needed
     changing in `sites/csc.sh`.
-
-## Tests
-
-`./.venv/bin/python -m pytest tests` (no network needed; CDS is replaced by a fake client).
-`tests/test_fft99_lite.sh` compares the EMOS-free FFT with EMOS if EMOS is installed.
 
 ## Layout
 
@@ -433,6 +423,6 @@ dcfe/         config, request builder, downloader (+manifest), GRIB index, flux 
 fortran/      calc_etadot sources, Makefile, selftest/ (installation test data)
 sites/        csc.sh, local.sh (module loads)
 NOTICE.md     origin, authors, modifications, third-party material; LICENSE, LICENSES/ the licence texts
-docs/         baseline.md (what the old flex_extract requests and produces)
+docs/         baseline.md (what the old flex_extract requests and produces), the question to FLEXPART on GRIB2 precipitation
 dcfe.sh       launcher
 ```

@@ -16,24 +16,7 @@ raw/
 CLAUDE.md
 docs/mars_server_persp_large.mp4
 
-# live-test data: large GRIB files, CDS job ids and logs from a personal account
-livetest/raw/
-livetest/out/
-livetest/lnspgrid/
-livetest/log.txt
-
 # stray runtime files
 *.part
 *.lock
 .scratch/
-livetest/sp/
-livetest/structtest/
-livetest/out*/
-livetest/raw_*/
-livetest/t_*/
-livetest/raw_merged/
-livetest/out_*/
-
-# finite-difference ETADOT test: MARS job id and data of a personal account
-livetest/fdtest/
-
