@@ -39,6 +39,7 @@ class Config:
     pressure: str = era5.DEFAULT_PRESSURE      # lnsp | sp | spectral
     source: str = era5.DEFAULT_SOURCE          # mars | mixed | arco
     gridding: str = era5.DEFAULT_GRIDDING      # exact | mars (spectral data from ARCO only)
+    arco_cache: Path | None = None             # keep the global ARCO objects here (mixed, arco)
 
     def __post_init__(self):
         if self.end < self.start:
@@ -58,6 +59,8 @@ class Config:
         if self.gridding != era5.DEFAULT_GRIDDING and self.source == "mars":
             raise ValueError("--gridding mars only applies to model levels read from ARCO-ERA5 "
                              "(--source mixed or arco); the MARS route is gridded by MARS itself")
+        if self.arco_cache is not None and self.source == "mars":
+            raise ValueError("--arco-cache keeps ARCO-ERA5 data: it needs --source mixed or arco")
         if self.source in ("mixed", "arco") and self.pressure != "lnsp":
             raise ValueError("--source mixed and arco take the surface pressure from the spectral LNSP of ARCO-ERA5: "
                              "use --pressure lnsp (the default)")
@@ -69,11 +72,12 @@ class Config:
     @classmethod
     def make(cls, start, end, area, grid=0.25, levels=era5.DEFAULT_LEVELS,
              rawdir="raw", outdir="out", pressure=era5.DEFAULT_PRESSURE,
-             source=era5.DEFAULT_SOURCE, gridding=era5.DEFAULT_GRIDDING) -> "Config":
+             source=era5.DEFAULT_SOURCE, gridding=era5.DEFAULT_GRIDDING, arco_cache=None) -> "Config":
         """area = (north, west, south, east); levels = (first, last)."""
         n, w, s, e = (float(x) for x in area)
         return cls(parse_date(start), parse_date(end), n, w, s, e, float(grid),
-                   int(levels[0]), int(levels[1]), Path(rawdir), Path(outdir), pressure, source, gridding)
+                   int(levels[0]), int(levels[1]), Path(rawdir), Path(outdir), pressure, source, gridding,
+                   Path(arco_cache).expanduser() if arco_cache else None)
 
     @property
     def domain_tag(self) -> str:
