@@ -27,11 +27,12 @@ import numpy as np
 
 from . import era5
 from .arco import box_axes
+from .arcocache import ObjectCache
 from .config import Config
 
 LOG = logging.getLogger("dcfe")
-URL = ("https://storage.googleapis.com/gcp-public-data-arco-era5/raw/date-variable-single_level/"
-       "{y}/{m:02d}/{d:02d}/{v}/surface.nc")
+BUCKET = "https://storage.googleapis.com/gcp-public-data-arco-era5/"
+URL = BUCKET + "raw/date-variable-single_level/{y}/{m:02d}/{d:02d}/{v}/surface.nc"
 _ID = era5.PARAM_ID
 _COORDS = {"time", "valid_time", "latitude", "longitude", "number", "expver"}
 
@@ -46,8 +47,13 @@ def fetch(url: str, dest: Path, tries: int = 4) -> None:
     for k in range(tries):
         try:
             with urllib.request.urlopen(url, timeout=120) as r, open(part, "wb") as f:
+                got = 0
                 while chunk := r.read(1 << 20):
                     f.write(chunk)
+                    got += len(chunk)
+                size = r.headers.get("Content-Length")       # read(n) does not report a connection that ends early
+                if size is not None and got != int(size):
+                    raise OSError(f"incomplete download: {got} of {size} bytes")
             os.replace(part, dest)
             return
         except OSError as e:
@@ -149,10 +155,13 @@ def raw_path(cfg: Config, kind: str, day: date) -> Path:
 
 class NcDownloader:
     """One task = one kind of data of one day (6 / 9 / 4 NetCDF files of 50 MB). Resumable: a written file is
-    never redone. `fetch_fn(url, dest)` is injectable for tests."""
+    never redone. `fetch_fn(url, dest)` is injectable for tests. With a cache, the global files of days up to
+    `final_until` (final ERA5) are kept there and taken from there."""
 
-    def __init__(self, cfg: Config, log: Callable[[str], None] = LOG.info, fetch_fn: Callable[[str, Path], None] = fetch):
+    def __init__(self, cfg: Config, log: Callable[[str], None] = LOG.info, fetch_fn: Callable[[str, Path], None] = fetch,
+                 cache: ObjectCache | None = None, final_until: date | None = None):
         self.cfg, self.log, self.fetch = cfg, log, fetch_fn
+        self.cache, self.final_until = cache, final_until
         pad = timedelta(days=era5.FLUX_PAD_DAYS)
         days = lambda a, b: [a + timedelta(days=i) for i in range((b - a).days + 1)]
         self.tasks = [("static", cfg.start)] + [("sl", d) for d in days(cfg.start, cfg.end)] + \
@@ -167,6 +176,29 @@ class NcDownloader:
         n = len(self.pending())
         return {"nc_tasks_done": len(self.tasks) - n, "nc_tasks_todo": n}
 
+    def _read(self, var: str, day: date, scratch: Path) -> tuple[list[datetime], np.ndarray]:
+        """the box of one global file: from the cache, or downloaded (and then added to the cache)"""
+        url = nc_url(var, day)
+        keep = self.cache is not None and self.final_until is not None and day <= self.final_until
+        key = url[len(BUCKET):]
+        if keep and self.cache.path(key).is_file():
+            try:
+                out = read_box(self.cache.path(key), self.lat, self.lon)
+                self.cache.used()
+                return out
+            except (OSError, RuntimeError) as e:             # what netCDF4 raises for an unreadable file
+                LOG.warning("ARCO cache: %s cannot be read (%s); downloading it again", self.cache.path(key), e)
+                self.cache.discard(key)
+        f = scratch / f"{var}_{day:%Y%m%d}.nc"
+        self.fetch(url, f)
+        try:
+            out = read_box(f, self.lat, self.lon)
+            if keep:
+                self.cache.add_file(key, f)
+            return out
+        finally:
+            f.unlink(missing_ok=True)
+
     def step(self) -> bool:
         todo = self.pending()
         if not todo:
@@ -176,13 +208,9 @@ class NcDownloader:
         scratch = Path(self.cfg.rawdir) / self.cfg.domain_tag / ".nc"
         scratch.mkdir(parents=True, exist_ok=True)
         series: dict[str, tuple[list[datetime], np.ndarray]] = {}
+        before = (self.cache.hits, self.cache.added) if self.cache else None
         for name, var in _kind_vars(kind).items():
-            f = scratch / f"{var}_{day:%Y%m%d}.nc"
-            self.fetch(nc_url(var, day), f)
-            try:
-                series[name] = read_box(f, self.lat, self.lon)
-            finally:
-                f.unlink(missing_ok=True)
+            series[name] = self._read(var, day, scratch)
         items = []
         if kind == "static":                                    # as in the MARS data: the fields of 00 UTC
             for name, (times, a) in series.items():
@@ -204,5 +232,6 @@ class NcDownloader:
             scratch.rmdir()
         except OSError:
             pass
-        self.log(f"ARCO NetCDF {kind} {day:%Y-%m-%d}: {path.name} ({len(todo) - 1} tasks left, {time.time() - t0:.0f} s)")
+        used = f", cache: {self.cache.hits - before[0]} used, {self.cache.added - before[1]} added" if self.cache else ""
+        self.log(f"ARCO NetCDF {kind} {day:%Y-%m-%d}: {path.name} ({len(todo) - 1} tasks left, {time.time() - t0:.0f} s{used})")
         return True

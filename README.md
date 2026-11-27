@@ -100,6 +100,7 @@ Details and checks: [*Exact or MARS gridding*](#exact-or-mars-gridding---griddin
 | `--grid` | `0.25` (default) or `0.5` |
 | `--levels FIRST LAST` | model levels, default `60 137` (137 is the lowest level, at the surface). All levels of a run go into one request |
 | `--source` | `mars` (default, everything from CDS/MARS), `mixed` (model levels from ARCO-ERA5, no queue, the rest from CDS) or `arco` (everything from ARCO-ERA5, no CDS account); see *Model levels from ARCO-ERA5* below |
+| `--arco-cache DIR` | `download` only, with `--source mixed` or `arco`: keep the global ARCO data in DIR and reuse it for any area; see *Keeping the global data* below |
 | `--gridding` | with `--source mixed` or `arco`: `exact` (default) or `mars`, how the spectral fields are put on the grid; see *Exact or MARS gridding* below |
 | `--pressure` | surface pressure source: `lnsp` (default), `sp`, `spectral`; see *Surface pressure* below |
 | `--outdir DIR` | where everything of the run goes (default `out`): hourly files, raw data in `DIR/raw`, logs in `DIR/logs` |
@@ -360,6 +361,35 @@ It reads about 0.75 GB per day before the model levels (0.8 GB per hour), and ne
 * `--pressure` must stay `lnsp`. Use a new `--outdir` when you change `--source`.
 
 `livetest/arco_nc_check.py` compares the result with MARS-route raw data.
+
+### Keeping the global data (`--arco-cache`)
+
+ARCO-ERA5 can only be read as global data: one chunk per variable, model level and hour, and one NetCDF file per
+single-level variable and day. Normally dcfe cuts your area from it and throws the rest away. With
+`download --arco-cache DIR` it also keeps what it downloaded, and reads from `DIR` whenever the data is there. A later
+run for **another area**, grid or `--gridding`, by you or a colleague using the same directory, then downloads only what
+is missing (more hours, or more levels).
+
+```bash
+./dcfe.sh download $A --source arco --arco-cache /shared/era5-arco --outdir /scratch/me/run1
+```
+
+* **Size.** With levels 60-137 plan for **15-20 GB per day** (about 500 GB per month, 6 TB per year): one tested hour
+  took 0.61 GB, and the surface and flux files add about 0.75 GB per day. Nothing is ever deleted automatically.
+  A run also needs the flux files of one day before and after its period.
+* **Speed.** The cache saves the download only. Evaluating the spectral fields on your area is done again in every run
+  (on a small test area one hour took 31 s from the cache and 55 s with download; the surface files 0 s and 29 s).
+* **`--source arco` gains most.** With `mixed` only the model levels are cached; the surface, flux and static fields
+  are requested from CDS for your area, queue included.
+* **Network.** Still needed: dcfe reads the stores' small metadata files to see which dates exist.
+* **Only final ERA5 is kept.** Preliminary ERA5T (the latest months) may still be revised and is downloaded every time.
+* **Already built hours are skipped**, so rerunning in a finished `--outdir` adds nothing to the cache.
+* **Sharing.** Several runs can use one cache at the same time. For a group, give the directory the group and the setgid
+  bit (`chgrp mygroup DIR; chmod g+rwxs DIR`) and run with `umask 002`. Someone who can only read it still benefits;
+  the run warns once that it cannot add to it. Everyone who can write to the directory is trusted: the files are used
+  as they are (only unreadable ones are downloaded again).
+* The files lie under the same paths as in the bucket. Delete old ones whenever you need the space, but not while a run
+  is using the cache.
 
 ### Exact or MARS gridding (`--gridding`)
 

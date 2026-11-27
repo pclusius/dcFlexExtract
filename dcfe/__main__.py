@@ -97,6 +97,10 @@ _HELP = (
         ("--rawdir DIR", "raw GRIB files (default <outdir>/raw); process searches it recursively"),
     ], None),
     ("DOWNLOAD OPTIONS", None, [
+        ("--arco-cache DIR", "with --source mixed or arco: keep a copy of the GLOBAL ARCO-ERA5 data in DIR and read "
+         "from it when it is there, so later runs for another area, grid or --gridding (yours or a colleague's) do "
+         "not download it again. Large: plan for 15-20 GB per day with levels 60-137. Only final ERA5 is kept, not "
+         "preliminary ERA5T. Nothing is deleted automatically. With mixed, the CDS fields are not cached."),
         ("--once", "do one step (collect finished jobs, submit new ones) and exit, for cron or short jobs. "
          "Without it: loop until everything is done."),
         ("--poll SECONDS", "wait when nothing changed, and the shortest time between two status checks of the same "
@@ -184,6 +188,9 @@ def build_parser():
     _domain_args(d)
     _outdir_arg(d, "raw data goes to <outdir>/raw unless --rawdir is given")
     d.add_argument("--rawdir", default=None, help="where raw GRIB files are stored (default: <outdir>/raw)")
+    d.add_argument("--arco-cache", default=None, metavar="DIR",
+                   help="--source mixed/arco: keep the global ARCO-ERA5 data in DIR (large) and reuse it, for any area; "
+                        "can be shared by a group")
     d.add_argument("--once", action="store_true", help="advance state once and exit (cron / short jobs)")
     d.add_argument("--poll", type=float, default=60,
                    help="seconds to wait when nothing changed, and the shortest time between two status checks of a "
@@ -239,7 +246,7 @@ def _make_config(*args, **kw):
 def _cfg(a):
     rawdir = a.rawdir or str(Path(a.outdir) / "raw")
     return _make_config(a.start, a.end, a.area, a.grid, a.levels, rawdir=rawdir, outdir=a.outdir, pressure=a.pressure,
-                       source=a.source, gridding=a.gridding)
+                       source=a.source, gridding=a.gridding, arco_cache=getattr(a, "arco_cache", None))
 
 
 def cmd_process(a):
@@ -314,11 +321,24 @@ def _arco_sources(cfg):
             raise SystemExit("dcfe: --source arco needs the Python package netCDF4, which this Python does not have. "
                              "Run './dcfe.sh setup --no-fortran' (it installs only what is missing), or load a module that provides it.")
     from . import arco
-    ml = arco.ArcoDownloader(cfg)
+    cache = None
+    if cfg.arco_cache is not None:
+        from .arcocache import ObjectCache
+        try:
+            cfg.arco_cache.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise SystemExit(f"dcfe: --arco-cache {cfg.arco_cache}: {e}")
+        cache = ObjectCache(cfg.arco_cache)
+    ml = arco.ArcoDownloader(cfg, store=arco.Store(cache=cache))
     stable = arco.check_range(cfg, ml.store)               # stops here, before anything is sent, if a day is missing
     if cfg.end > stable:
         LOG.warning("%s onwards the ARCO-ERA5 data is preliminary (ERA5T) and may still be revised by ECMWF",
                     (stable + timedelta(days=1)).strftime("%d-%m-%Y"))
+    if cache:
+        LOG.info("ARCO cache: %s (global data, final ERA5 only)", cache.root)
+        last = cfg.end + timedelta(days=era5.FLUX_PAD_DAYS if cfg.source == "arco" else 0)
+        if last > stable:
+            LOG.warning("ARCO cache: days after %s are preliminary (ERA5T) and are not kept", stable.strftime("%d-%m-%Y"))
     nc = None
     if cfg.source == "arco":
         from . import arconc
@@ -326,7 +346,7 @@ def _arco_sources(cfg):
             arconc.check_range(cfg)
         except arconc.ArcoRawUnavailable as e:
             raise SystemExit(f"dcfe: {e}")
-        nc = arconc.NcDownloader(cfg)
+        nc = arconc.NcDownloader(cfg, cache=cache, final_until=stable)
     LOG.info("model levels from ARCO-ERA5: %s%s", ml.summary(), f"; surface, flux, static: {nc.summary()}" if nc else "")
     return ml, nc, (lambda: bool((nc and nc.step()) or ml.step()))
 

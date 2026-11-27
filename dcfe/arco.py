@@ -34,12 +34,15 @@ from typing import Callable
 import numpy as np
 
 from . import era5, spectral
+from .arcocache import ObjectCache
 from .config import Config
 
 LOG = logging.getLogger("dcfe")
 ROOT = "https://storage.googleapis.com/gcp-public-data-arco-era5/co"
 WIND, MOIST, SURF = "model-level-wind.zarr-v2", "model-level-moisture.zarr-v2", "single-level-surface.zarr-v2"
 STORES = (WIND, MOIST, SURF)
+# what --arco-cache keeps: the data chunks (first index = hour). Metadata and the time axis grow with ARCO: never kept
+CACHED_VARS = frozenset({"d", "vo", "t", "q", "clwc", "ciwc", "lnsp"})
 EPOCH = datetime(1900, 1, 1)          # the time axis of all stores: hours since this instant
 BLOCK = 12                            # model levels synthesised at once (memory ~ 60 MB per level at T639, 129 x 161 points)
 _ID = era5.PARAM_ID
@@ -76,7 +79,10 @@ def http_get(url: str, tries: int = 5, timeout: float = 60) -> bytes:
 class Store:
     """Read access to the three Zarr v2 stores. `get(url) -> bytes` is replaceable (tests)."""
 
-    def __init__(self, get: Callable[[str], bytes] | None = None, root: str = ROOT, workers: int = 16):
+    def __init__(self, get: Callable[[str], bytes] | None = None, root: str = ROOT, workers: int = 16,
+                 cache: ObjectCache | None = None):
+        self.cache = cache
+        self._final: date | None = None
         self._get = get or http_get
         self.root = root
         self.pool = ThreadPoolExecutor(workers)
@@ -91,13 +97,46 @@ class Store:
             self._json[rel] = json.loads(self.get(rel))
         return self._json[rel]
 
-    def chunk(self, store: str, var: str, *idx: int) -> np.ndarray:
-        meta = self.json(f"{store}/{var}/.zarray")
-        raw = self.get(f"{store}/{var}/" + ".".join(str(i) for i in idx))
+    def final_until(self) -> date:
+        """last day of final ERA5 in all three stores"""
+        if self._final is None:
+            self._final = self.valid_range()[2]
+        return self._final
+
+    @staticmethod
+    def _decode(meta: dict, raw: bytes) -> np.ndarray:
         if meta.get("compressor"):
             import numcodecs
+            # Blosc decodes a cut-off buffer into wrong numbers without an error; its header holds the full length
+            if meta["compressor"].get("id") == "blosc" and (len(raw) < 16 or int.from_bytes(raw[12:16], "little") != len(raw)):
+                raise ValueError(f"compressed chunk is incomplete ({len(raw)} bytes)")
             raw = numcodecs.get_codec(dict(meta["compressor"])).decode(raw)
-        return np.frombuffer(raw, dtype=meta["dtype"])
+        a = np.frombuffer(raw, dtype=meta["dtype"])
+        if "chunks" in meta and a.size != int(np.prod(meta["chunks"])):
+            raise ValueError(f"chunk has {a.size} values")
+        return a
+
+    def chunk(self, store: str, var: str, *idx: int) -> np.ndarray:
+        meta = self.json(f"{store}/{var}/.zarray")
+        rel = f"{store}/{var}/" + ".".join(str(i) for i in idx)
+        keep = (self.cache is not None and var in CACHED_VARS
+                and (EPOCH + timedelta(hours=idx[0])).date() <= self.final_until())
+        if not keep:
+            return self._decode(meta, self.get(rel))
+        key = f"co/{rel}"                                    # the path in the bucket
+        raw = self.cache.read(key)
+        if raw is not None:
+            try:
+                a = self._decode(meta, raw)
+                self.cache.used()
+                return a
+            except Exception as e:                           # noqa: BLE001 - whatever the codec raises
+                LOG.warning("ARCO cache: %s is damaged (%s); downloading it again", self.cache.path(key), e)
+                self.cache.discard(key)
+        raw = self.get(rel)
+        a = self._decode(meta, raw)                          # keep only what can be read
+        self.cache.write(key, raw)
+        return a
 
     def submit(self, store: str, var: str, *idx: int) -> Future:
         return self.pool.submit(self.chunk, store, var, *idx)
@@ -312,6 +351,8 @@ class ArcoDownloader:
             return False
         T = todo[0]
         t0 = time.time()
+        cache = self.store.cache
+        before = (cache.hits, cache.added) if cache else None
         if self._builder is None:
             self._builder = HourBuilder(self.cfg, self.store)
         b = self._builder
@@ -323,5 +364,6 @@ class ArcoDownloader:
             for m in messages(self.cfg, h, b.A, b.B):
                 f.write(m)
         os.replace(part, path)
-        self.log(f"ARCO {T:%Y-%m-%d %H} UTC: {path.name} ({len(todo) - 1} hours left, {time.time() - t0:.0f} s)")
+        used = f", cache: {cache.hits - before[0]} used, {cache.added - before[1]} added" if cache else ""
+        self.log(f"ARCO {T:%Y-%m-%d %H} UTC: {path.name} ({len(todo) - 1} hours left, {time.time() - t0:.0f} s{used})")
         return True
