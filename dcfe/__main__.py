@@ -135,7 +135,8 @@ _HELP = (
         ("<outdir>/logs/commands.log", "one line per run"),
         ("<rawdir>/<domain>/manifest.json", "download state (job ids); keep it while downloading"),
     ], "Existing output files are skipped, never overwritten: use a new --outdir when you change --pressure, "
-       "--levels or --etadot-boundary. README.md has the details."),
+       "--levels or --etadot-boundary. Use a separate --outdir for each area: process stops if existing files are "
+       "for another one, and leaves out raw data of other areas. README.md has the details."),
 )
 
 
@@ -257,19 +258,27 @@ def cmd_process(a):
     from .rawindex import RawIndex
     cfg = _cfg(a)
     LOG.info("raw data: %s   output: %s   ETADOT boundary: %s   pressure: %s", cfg.rawdir, cfg.outdir, a.etadot_boundary, cfg.pressure)
-    ix = RawIndex.from_dir(cfg.rawdir)
+    from .process import describe_area, outputs_of_another_area
+    want = describe_area((cfg.north, cfg.west, cfg.south, cfg.east, *cfg.shape))
+    other = outputs_of_another_area(cfg, Path(cfg.outdir))      # before anything is written or removed
+    if other:
+        LOG.error("%d existing file(s) in %s are not for this area, %s. First: %s is %s. The file names do not tell "
+                  "areas apart: use a separate --outdir for each area.", len(other), cfg.outdir, want, *other[0])
+        return 2
+    ix = RawIndex.from_dir(cfg.rawdir, cfg)
     LOG.info("indexed %d raw files", ix.files)
     for p in sorted(Path(cfg.rawdir).rglob("*.grb")):
         LOG.debug("raw file: %s (%d bytes)", p, p.stat().st_size)
     LOG.debug("index: %d flux, %d surface, %d static, %d LNSP, %d model-level messages",
               len(ix.flux), len(ix.sfc), len(ix.static), len(ix.lnsp), len(ix.ml))
-    from .process import expected_grid_size
-    sizes, want = ix.grid_sizes(), expected_grid_size(cfg)
-    if sizes and set(sizes) != {want}:
-        LOG.error("raw data does not match the domain: %d values per field expected, found %s. Tiles of the domain "
-                  "(CDS refused the larger request and the download was split by area) cannot be assembled by "
-                  "process yet, or the data is for another area or grid.", want, sizes)
-        return 2
+    if ix.foreign:
+        found = "; ".join(f"{describe_area(a)}: {n} fields" for a, n in list(ix.foreign.items())[:5])
+        if not ix.grid_sizes() and not ix.static:
+            LOG.error("no raw data is on the grid of this domain, %s. Found: %s. The data is for another area or "
+                      "grid, or it is tiles of the domain (CDS refused the larger request and the download was split "
+                      "by area), which process cannot assemble yet.", want, found)
+            return 2
+        LOG.warning("raw data of another area or grid is left out (this domain: %s). Found: %s", want, found)
     out = Path(cfg.outdir)
     out.mkdir(parents=True, exist_ok=True)
     scratch = Path(a.scratch) if a.scratch else out / ".scratch"

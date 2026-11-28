@@ -59,10 +59,28 @@ def out_name(cfg: Config, T: datetime) -> str:
 
 def expected_grid_size(cfg: Config) -> int:
     """number of grid points of the domain"""
-    west, east = cfg.west, cfg.east
-    if east < west:
-        east += 360
-    return (int(round((east - west) / cfg.grid)) + 1) * (int(round((cfg.north - cfg.south) / cfg.grid)) + 1)
+    ni, nj = cfg.shape
+    return ni * nj
+
+
+def describe_area(area: tuple | None) -> str:
+    if area is None:
+        return "not a regular lat-lon grid"
+    n, w, s, e, ni, nj = area
+    w, e = (((x + 180) % 360) - 180 for x in (w, e))
+    return f"N {n:g} W {w:g} S {s:g} E {e:g} ({ni} x {nj} points)"
+
+
+def outputs_of_another_area(cfg: Config, outdir: Path) -> list[tuple[str, str]]:
+    """(name, what it holds) of every existing output file of this run that is not on the grid of the domain"""
+    bad = []
+    for T in hours(cfg):
+        f = outdir / out_name(cfg, T)
+        if f.exists():
+            found, area = gribio.first_gridded(f)
+            if not (found and cfg.covers(area)):
+                bad.append((f.name, describe_area(area) if found else "no gridded GRIB message"))
+    return bad
 
 
 def namelist(cfg: Config, mnauf: int) -> str:
@@ -241,6 +259,9 @@ def remove_raw(ix: RawIndex, cfg: Config) -> list[Path]:
     hi = datetime.combine(cfg.end, datetime.min.time()) + pad + timedelta(days=1, hours=12)
     gone, freed = [], 0
     for path in sorted(ix.used_paths()):
+        if path in ix.foreign_paths:
+            LOG.info("kept %s: it also holds data of another area or grid", path)
+            continue
         a, b = ix.span.get(path, (lo, lo))
         if lo <= a and b <= hi:
             size = Path(path).stat().st_size

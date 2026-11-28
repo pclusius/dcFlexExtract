@@ -80,6 +80,22 @@ class Config:
                    Path(arco_cache).expanduser() if arco_cache else None)
 
     @property
+    def shape(self) -> tuple[int, int]:
+        """(Ni, Nj): number of grid points west-east and north-south"""
+        east = self.east + 360 if self.east < self.west else self.east
+        return int(round((east - self.west) / self.grid)) + 1, int(round((self.north - self.south) / self.grid)) + 1
+
+    def covers(self, area: tuple | None) -> bool:
+        """Is a GRIB grid, (north, west, south, east, Ni, Nj), the grid of this domain? The number of points must be
+        equal and every edge less than one grid spacing from the requested one (a service may move an edge that is
+        not on its grid)."""
+        if area is None or tuple(area[4:]) != self.shape:
+            return False
+        n, w, s, e = area[:4]
+        lon = lambda a, b: abs((a - b + 180) % 360 - 180)
+        return max(abs(n - self.north), abs(s - self.south), lon(w, self.west), lon(e, self.east)) < self.grid - 1e-3
+
+    @property
     def domain_tag(self) -> str:
         """Directory name that identifies the domain, so data of different domains never mix."""
         f = lambda x: f"{x:g}".replace("-", "m").replace(".", "p")

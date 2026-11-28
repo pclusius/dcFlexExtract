@@ -31,6 +31,27 @@ class MsgRef:
     edition: int
     grid_type: str = ""
     nvalues: int = 0
+    area: tuple | None = None          # regular lat-lon grids: (north, west, south, east, Ni, Nj)
+
+
+def _area(g) -> tuple | None:
+    if ec.codes_get(g, "gridType") != "regular_ll":
+        return None
+    lat = [ec.codes_get(g, f"latitudeOf{k}GridPointInDegrees") for k in ("First", "Last")]
+    return (max(lat), ec.codes_get(g, "longitudeOfFirstGridPointInDegrees"), min(lat),
+            ec.codes_get(g, "longitudeOfLastGridPointInDegrees"), ec.codes_get(g, "Ni"), ec.codes_get(g, "Nj"))
+
+
+def first_gridded(path: str | Path) -> tuple[bool, tuple | None]:
+    """(a gridded message was found, its area as in MsgRef.area) for the first non-spectral message of a file"""
+    with open(path, "rb") as fh:
+        while (g := ec.codes_grib_new_from_file(fh)) is not None:
+            try:
+                if ec.codes_get(g, "gridType") != "sh":
+                    return True, _area(g)
+            finally:
+                ec.codes_release(g)
+    return False, None
 
 
 def _valid(g) -> datetime:
@@ -49,7 +70,7 @@ def scan(path: str | Path) -> list[MsgRef]:
                 refs.append(MsgRef(str(path), ec.codes_get_message_offset(g), ec.codes_get(g, "paramId"), _valid(g),
                                    ec.codes_get(g, "level"), ec.codes_get(g, "typeOfLevel"),
                                    ec.codes_get(g, "stepType"), ec.codes_get(g, "edition"),
-                                   ec.codes_get(g, "gridType"), ec.codes_get(g, "numberOfValues")))
+                                   ec.codes_get(g, "gridType"), ec.codes_get(g, "numberOfValues"), _area(g)))
             finally:
                 ec.codes_release(g)
     return refs

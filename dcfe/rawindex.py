@@ -29,7 +29,11 @@ _ML_IDS = {_ID[n] for n in era5.ML_VARS}
 
 
 class RawIndex:
-    def __init__(self, paths):
+    def __init__(self, paths, cfg=None):
+        """With a Config, gridded messages of any other area or grid are left out (and listed in `foreign`);
+        spectral messages are global and always kept."""
+        self.foreign: dict[tuple | None, int] = {}         # area (None: not regular lat-lon) -> messages left out
+        self.foreign_paths: set[str] = set()
         self.flux: dict[tuple[int, datetime], gribio.MsgRef] = {}
         self.sfc: dict[tuple[int, datetime], gribio.MsgRef] = {}
         self.static: dict[int, gribio.MsgRef] = {}
@@ -42,14 +46,18 @@ class RawIndex:
         for p in sorted(paths):
             self.files += 1
             for r in gribio.scan(p):
+                if cfg is not None and r.grid_type != "sh" and not cfg.covers(r.area):
+                    self.foreign[r.area] = self.foreign.get(r.area, 0) + 1
+                    self.foreign_paths.add(r.path)
+                    continue
                 self._add(r)
                 if r.param_id not in _STATIC_IDS:
                     lo, hi = self.span.get(r.path, (r.valid, r.valid))
                     self.span[r.path] = (min(lo, r.valid), max(hi, r.valid))
 
     @classmethod
-    def from_dir(cls, rawdir) -> "RawIndex":
-        return cls(Path(rawdir).rglob("*.grb"))
+    def from_dir(cls, rawdir, cfg=None) -> "RawIndex":
+        return cls(Path(rawdir).rglob("*.grb"), cfg)
 
     def used_paths(self) -> set[str]:
         """files that hold at least one message the index kept"""
