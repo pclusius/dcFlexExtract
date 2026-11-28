@@ -100,7 +100,7 @@ Details and checks: [*Exact or MARS gridding*](#exact-or-mars-gridding---griddin
 | `--grid` | `0.25` (default) or `0.5` |
 | `--levels FIRST LAST` | model levels, default `60 137` (137 is the lowest level, at the surface). All levels of a run go into one request |
 | `--source` | `mars` (default, everything from CDS/MARS), `mixed` (model levels from ARCO-ERA5, no queue, the rest from CDS) or `arco` (everything from ARCO-ERA5, no CDS account); see *Model levels from ARCO-ERA5* below |
-| `--arco-cache DIR` | `download` only, with `--source mixed` or `arco`: keep the global ARCO data in DIR and reuse it for any area; see *Keeping the global data* below |
+| `--arco-cache DIR` | for `download` with `--source mixed` or `arco`: keep the global ARCO data in DIR and reuse it for any area (`plan` and `process` ignore it); see *Keeping the global data* below |
 | `--gridding` | with `--source mixed` or `arco`: `exact` (default) or `mars`, how the spectral fields are put on the grid; see *Exact or MARS gridding* below |
 | `--pressure` | surface pressure source: `lnsp` (default), `sp`, `spectral`; see *Surface pressure* below |
 | `--outdir DIR` | where everything of the run goes (default `out`): hourly files, raw data in `DIR/raw`, logs in `DIR/logs` |

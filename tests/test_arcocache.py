@@ -148,3 +148,12 @@ def test_the_option_needs_an_arco_source(tmp_path):
         cfg(tmp_path, source="mars", arco_cache=tmp_path)
     a = build_parser().parse_args("download --start 20230830 --end 20230830 --area 61 21 59 25 --arco-cache X".split())
     assert a.arco_cache == "X"
+
+
+@pytest.mark.parametrize("cmd", ["plan", "process"])
+@pytest.mark.parametrize("source", ["mars", "arco"])
+def test_the_other_commands_accept_and_ignore_the_option(tmp_path, cmd, source):
+    from dcfe.__main__ import _cfg
+    a = build_parser().parse_args(f"{cmd} --start 20230830 --end 20230830 --area 61 21 59 25 --source {source} "
+                                  f"--arco-cache {tmp_path / 'cache'}".split())
+    assert _cfg(a).arco_cache is None and not (tmp_path / "cache").exists()
