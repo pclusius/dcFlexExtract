@@ -263,6 +263,11 @@ same raw directory, e.g. after `--levels 60 137`: `download ... --levels 1 59 --
 harmless). `process` finds data by content, so `process ... --levels 1 137` then uses both pieces. Write the result
 to a **new** `--outdir`: existing output files are skipped, not overwritten.
 
+**Use a separate `--outdir` for each area.** The hourly file names do not say which area they hold. `process` therefore
+first checks every existing hourly file of the run and stops, writing and removing nothing, if one is on another grid.
+Raw data under `--rawdir` that is not on the grid of your `--area` and `--grid` is left out, with a warning. (Only the
+grid is checked, not `--levels`, `--source` or `--pressure`.)
+
 ## Output
 
 `EA025YYMMDDHH` (prefix `EA` + grid×100) holds, per hour: U V ETADOT T SP Q on all levels, CLWC, CIWC,
