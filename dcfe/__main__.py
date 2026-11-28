@@ -36,6 +36,9 @@ def _domain_args(p):
                    help="--source mixed/arco only: exact = evaluate the spectral fields exactly at the grid points "
                         "(default); mars = reproduce MARS's own gridding step (Gaussian grid, then linear in latitude), "
                         "for consistency with older MARS-route data. Not better data, only comparable data")
+    p.add_argument("--arco-cache", default=None, metavar="DIR",
+                   help="download with --source mixed/arco: keep the global ARCO-ERA5 data in DIR (large) and reuse "
+                        "it, for any area; can be shared by a group. plan and process accept and ignore it")
     p.add_argument("--pressure", choices=era5.PRESSURE_SOURCES, default=era5.DEFAULT_PRESSURE,
                    help="source of the surface pressure: lnsp = exp(gridded LNSP from MARS) (default), "
                         "sp = ECMWF single-levels surface pressure, spectral = spectral LNSP through calc_etadot "
@@ -100,7 +103,8 @@ _HELP = (
         ("--arco-cache DIR", "with --source mixed or arco: keep a copy of the GLOBAL ARCO-ERA5 data in DIR and read "
          "from it when it is there, so later runs for another area, grid or --gridding (yours or a colleague's) do "
          "not download it again. Large: plan for 15-20 GB per day with levels 60-137. Only final ERA5 is kept, not "
-         "preliminary ERA5T. Nothing is deleted automatically. With mixed, the CDS fields are not cached."),
+         "preliminary ERA5T. Nothing is deleted automatically. With mixed, the CDS fields are not cached. plan and process accept the option and ignore it, so you can use "
+         "the same options for all three."),
         ("--once", "do one step (collect finished jobs, submit new ones) and exit, for cron or short jobs. "
          "Without it: loop until everything is done."),
         ("--poll SECONDS", "wait when nothing changed, and the shortest time between two status checks of the same "
@@ -188,9 +192,6 @@ def build_parser():
     _domain_args(d)
     _outdir_arg(d, "raw data goes to <outdir>/raw unless --rawdir is given")
     d.add_argument("--rawdir", default=None, help="where raw GRIB files are stored (default: <outdir>/raw)")
-    d.add_argument("--arco-cache", default=None, metavar="DIR",
-                   help="--source mixed/arco: keep the global ARCO-ERA5 data in DIR (large) and reuse it, for any area; "
-                        "can be shared by a group")
     d.add_argument("--once", action="store_true", help="advance state once and exit (cron / short jobs)")
     d.add_argument("--poll", type=float, default=60,
                    help="seconds to wait when nothing changed, and the shortest time between two status checks of a "
@@ -246,7 +247,8 @@ def _make_config(*args, **kw):
 def _cfg(a):
     rawdir = a.rawdir or str(Path(a.outdir) / "raw")
     return _make_config(a.start, a.end, a.area, a.grid, a.levels, rawdir=rawdir, outdir=a.outdir, pressure=a.pressure,
-                       source=a.source, gridding=a.gridding, arco_cache=getattr(a, "arco_cache", None))
+                       source=a.source, gridding=a.gridding,
+                       arco_cache=a.arco_cache if a.cmd == "download" else None)    # the others read no ARCO data
 
 
 def cmd_process(a):
